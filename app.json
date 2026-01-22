@@ -1,0 +1,84 @@
+{
+  "expo": {
+    "name": "WERN",
+    "slug": "wern-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assest/img/wern-logo.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assest/img/wern-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "notification": {
+      "icon": "./assest/img/wern-logo.png",
+      "color": "#1B8A9E",
+      "androidMode": "default",
+      "androidCollapsedTitle": "WERN Walking"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wern.app",
+      "infoPlist": {
+        "NSMotionUsageDescription": "WERN needs access to your motion data to count steps and track your walking progress.",
+        "NSLocationWhenInUseUsageDescription": "WERN needs location access to track your walking route.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "WERN needs background location to continue counting steps when the app is in background.",
+        "NSLocationAlwaysUsageDescription": "WERN needs background location to continue counting steps when the app is in background.",
+        "UIBackgroundModes": ["location", "fetch", "processing"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assest/img/wern-logo.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.wern.app",
+      "permissions": [
+        "android.permission.ACTIVITY_RECOGNITION",
+        "android.permission.BODY_SENSORS",
+        "android.permission.HIGH_SAMPLING_RATE_SENSORS",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_HEALTH",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.WAKE_LOCK",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assest/img/wern-logo.png",
+          "color": "#1B8A9E",
+          "defaultChannel": "walking",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "WERN needs background location to continue counting steps when the app is in background.",
+          "locationAlwaysPermission": "WERN needs background location to continue counting steps when the app is in background.",
+          "locationWhenInUsePermission": "WERN needs location access to track your walking progress.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "WERN needs access to your motion sensors to accurately count your steps."
+        }
+      ],
+      "expo-localization"
+    ],
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
