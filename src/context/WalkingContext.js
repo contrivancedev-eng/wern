@@ -50,14 +50,26 @@ export const WalkingProvider = ({ children }) => {
   const [litres, setLitres] = useState('0.00');
 
   // Calculate km and kcal locally based on step count
-  // Average stride length: 0.762 meters (2.5 feet)
-  // Average calories per step: 0.04 kcal
-  const METERS_PER_STEP = 0.762;
-  const KCAL_PER_STEP = 0.04;
+  // Industry standard calculations (used by Fitbit, Apple Health, Google Fit):
+  // - Average stride length: 0.75 meters (~2.5 feet) for walking
+  // - Calories: ~0.05 kcal per step (based on 70kg average weight)
+  //
+  // Reference: 10,000 steps ≈ 7.5 km and ≈ 500 kcal
+  const calculateKilometre = (steps) => {
+    const STRIDE_LENGTH_METERS = 0.75; // Average walking stride
+    return ((steps * STRIDE_LENGTH_METERS) / 1000).toFixed(2);
+  };
+
+  const calculateKcal = (steps) => {
+    // Formula: steps × 0.05 kcal (industry average for 70kg person)
+    // This accounts for walking at moderate pace (4-5 km/h)
+    const KCAL_PER_STEP = 0.05;
+    return Math.round(steps * KCAL_PER_STEP);
+  };
 
   // Derived values - calculated from stepCount
-  const kilometre = ((stepCount * METERS_PER_STEP) / 1000).toFixed(2);
-  const kcal = Math.round(stepCount * KCAL_PER_STEP);
+  const kilometre = calculateKilometre(stepCount);
+  const kcal = calculateKcal(stepCount);
 
   // Get storage keys for current user
   const storageKeys = useRef(getStorageKeys(null));
