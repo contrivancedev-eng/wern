@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { GradientBackground, GlassCard, GradientButton, OTPInput, Toast } from '../../components';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { fonts } from '../../utils';
 
 const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
 
@@ -230,14 +231,14 @@ const createStyles = (colors) => StyleSheet.create({
     paddingVertical: 32,
   },
   title: {
-    fontSize: 28,
+    fontSize: fonts.h1,
     fontWeight: '700',
     color: colors.textWhite,
     textAlign: 'center',
     marginBottom: 16,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: fonts.body,
     color: colors.textLight,
     textAlign: 'center',
     lineHeight: 22,

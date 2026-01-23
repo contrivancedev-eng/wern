@@ -5,6 +5,7 @@ import { BlurView } from 'expo-blur';
 import { Icon } from '../../components';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { fonts } from '../../utils';
 
 const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
 
@@ -266,7 +267,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     marginBottom: 4,
   },
   cardValue: {
-    fontSize: 32,
+    fontSize: fonts.h1,
     fontWeight: '700',
     color: colors.textWhite,
     marginBottom: 8,
@@ -347,7 +348,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     zIndex: 10,
   },
   statValue: {
-    fontSize: 28,
+    fontSize: fonts.h1,
     fontWeight: '700',
     color: colors.textWhite,
     marginBottom: 4,
@@ -358,7 +359,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   },
   // Section Title
   sectionTitle: {
-    fontSize: 18,
+    fontSize: fonts.h3,
     fontWeight: '700',
     color: colors.textWhite,
     marginBottom: 16,

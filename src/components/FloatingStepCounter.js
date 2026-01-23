@@ -15,7 +15,7 @@ const COLLAPSED_WIDTH = 160;
 const EXPANDED_WIDTH = SCREEN_WIDTH - 40;
 
 const FloatingStepCounter = () => {
-  const { isWalking, stepCount, activeCause, stopWalking, kilometre, kcal, litres, goalSteps } = useWalking();
+  const { isWalking, stepCount, activeCause, stopWalking, goalSteps, kilometre, kcal, litres } = useWalking();
   const { colors, isDarkMode } = useTheme();
   const insets = useSafeAreaInsets();
   const [isVisible, setIsVisible] = useState(false);

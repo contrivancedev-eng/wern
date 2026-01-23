@@ -5,6 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Icon } from '../../components';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { fonts } from '../../utils';
 
 const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
 
@@ -396,7 +397,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     marginBottom: 8,
   },
   earnedTitle: {
-    fontSize: 17,
+    fontSize: fonts.h4,
     fontWeight: '700',
     color: colors.textWhite,
   },
@@ -456,7 +457,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   },
   // Section Title
   sectionTitle: {
-    fontSize: 18,
+    fontSize: fonts.h3,
     fontWeight: '700',
     color: colors.textWhite,
     marginBottom: 14,
@@ -571,7 +572,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     flex: 1,
   },
   supportTitle: {
-    fontSize: 15,
+    fontSize: fonts.h4,
     fontWeight: '700',
     color: colors.textWhite,
     marginBottom: 5,
@@ -618,7 +619,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     marginBottom: 8,
   },
   modalTitle: {
-    fontSize: 22,
+    fontSize: fonts.h2,
     fontWeight: '700',
     color: colors.textWhite,
   },
@@ -688,7 +689,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.2)' : colors.cardBorder,
   },
   dropdownTitle: {
-    fontSize: 16,
+    fontSize: fonts.h4,
     fontWeight: '700',
     color: colors.textWhite,
     textAlign: 'center',

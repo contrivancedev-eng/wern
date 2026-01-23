@@ -9,6 +9,7 @@ import { Icon } from '../../components';
 import CauseLottie from '../../components/CauseLottie';
 import { useTheme } from '../../context/ThemeContext';
 import { useWalking, useAuth, useWeather } from '../../context';
+import { fonts } from '../../utils';
 
 // Import SVG backgrounds for causes 1, 2, 3
 import Forest1 from '../../../assest/forest/1.svg';
@@ -45,6 +46,9 @@ const WalkScreen = () => {
     kcal: 0,
     litres: 0,
   });
+  const [showHourlyGraph, setShowHourlyGraph] = useState(false);
+  const [hourlyData, setHourlyData] = useState(Array(24).fill(0));
+  const hourlyScrollRef = useRef(null);
   const { colors, isDarkMode } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
   const {
@@ -100,10 +104,56 @@ const WalkScreen = () => {
     }
   }, [token, updateGoalSteps]);
 
-  // Fetch today's summary on mount and when token changes
+  // Auto-scroll to current hour when hourly graph is shown
+  useEffect(() => {
+    if (showHourlyGraph && hourlyScrollRef.current) {
+      const currentHour = new Date().getHours();
+      // Each bar column is 28px wide + 4px margin (2px each side) = 32px total
+      // Scroll to show current hour in the center of the view
+      const scrollPosition = Math.max(0, (currentHour * 32) - 80); // 80px offset to center
+      setTimeout(() => {
+        hourlyScrollRef.current?.scrollTo({ x: scrollPosition, animated: true });
+      }, 100);
+    }
+  }, [showHourlyGraph]);
+
+  // Fetch hourly transaction data for today
+  const fetchHourlyData = useCallback(async () => {
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${API_URL}get-step-transection-history?token=${token}`);
+      const data = await response.json();
+
+      if (data.status === true && data.data?.transactions) {
+        // Get today's date string
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+        // Initialize hourly buckets (0-23 hours)
+        const hourlySteps = Array(24).fill(0);
+
+        // Filter today's transactions and group by hour
+        data.data.transactions.forEach((transaction) => {
+          if (transaction.is_date === todayStr && transaction.event_time) {
+            const eventDate = new Date(transaction.event_time);
+            const hour = eventDate.getHours();
+            hourlySteps[hour] += parseInt(transaction.steps) || 0;
+          }
+        });
+
+        setHourlyData(hourlySteps);
+      }
+    } catch (error) {
+      console.log('Error fetching hourly data:', error.message);
+    }
+  }, [token]);
+
+  // Fetch today's summary and hourly data on mount and when token changes
   useEffect(() => {
     fetchTodaySummary();
-  }, [fetchTodaySummary]);
+    fetchHourlyData();
+  }, [fetchTodaySummary, fetchHourlyData]);
 
   // Refetch data when dataRefreshTrigger changes (e.g., after saving goals in ProfileScreen)
   useEffect(() => {
@@ -123,8 +173,22 @@ const WalkScreen = () => {
   useFocusEffect(
     useCallback(() => {
       fetchTodaySummary();
-    }, [fetchTodaySummary])
+      fetchHourlyData();
+    }, [fetchTodaySummary, fetchHourlyData])
   );
+
+  // Refetch today's summary when walking stops to get latest server data
+  const prevIsWalking = useRef(isWalking);
+  useEffect(() => {
+    if (prevIsWalking.current && !isWalking) {
+      // Walking just stopped - refetch today's summary and hourly data
+      setTimeout(() => {
+        fetchTodaySummary();
+        fetchHourlyData();
+      }, 1000); // Small delay to allow server to process final data
+    }
+    prevIsWalking.current = isWalking;
+  }, [isWalking, fetchTodaySummary, fetchHourlyData]);
 
   // Get first name for greeting
   const firstName = user?.full_name?.split(' ')[0] || 'User';
@@ -132,8 +196,13 @@ const WalkScreen = () => {
   // Get time-based greeting
   const getGreeting = () => {
     const hour = new Date().getHours();
+    // Night: 12am-5:59am (hour 0-5)
+    if (hour < 6) return 'Good Night';
+    // Morning: 6am-11:59am (hour 6-11)
     if (hour < 12) return 'Good Morning';
+    // Afternoon: 12pm-4:59pm (hour 12-16)
     if (hour < 17) return 'Good Afternoon';
+    // Evening: 5pm-11:59pm (hour 17-23)
     return 'Good Evening';
   };
 
@@ -228,7 +297,7 @@ const WalkScreen = () => {
   const goalSteps = todaySummary.goal || 10000;
   const progressPercent = Math.min((stepCount / goalSteps) * 100, 100); // Cap at 100%
 
-  // Use km, kcal, litres from context (persisted locally for today)
+  // Use km, kcal, litties from context (updated by socket response)
   const displayKm = kilometre;
   const displayKcal = kcal;
   const displayLitres = litres;
@@ -622,11 +691,88 @@ const WalkScreen = () => {
                   </View>
                   <View style={styles.statItem}>
                     <Text style={styles.statValue}>{displayLitres}</Text>
-                    <Text style={styles.statLabel}>Litres</Text>
+                    <Text style={styles.statLabel}>Litties</Text>
                   </View>
                 </View>
               </View>
             </View>
+
+            {/* Hourly Graph Toggle */}
+            <TouchableOpacity
+              style={styles.hourlyToggle}
+              onPress={() => setShowHourlyGraph(!showHourlyGraph)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.hourlyToggleLeft}>
+                <Icon name="bar-chart" size={16} color={colors.textLight} />
+                <Text style={styles.hourlyToggleText}>Hourly Activity</Text>
+              </View>
+              <Icon
+                name={showHourlyGraph ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            {/* Hourly Bar Graph */}
+            {showHourlyGraph && (
+              <View style={styles.hourlyGraphContainer}>
+                {/* Y-axis labels and bars */}
+                <View style={styles.hourlyGraphContent}>
+                  {/* Bar chart */}
+                  <View style={styles.barsContainer}>
+                    <ScrollView
+                      ref={hourlyScrollRef}
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.barsScrollContent}
+                    >
+                      {hourlyData.map((steps, hour) => {
+                        const maxSteps = Math.max(...hourlyData, 100); // Minimum scale of 100
+                        const barHeight = maxSteps > 0 ? (steps / maxSteps) * 80 : 0;
+                        const isCurrentHour = hour === new Date().getHours();
+
+                        return (
+                          <View key={hour} style={styles.barColumn}>
+                            <Text style={styles.barValue}>
+                              {steps > 0 ? steps : ''}
+                            </Text>
+                            <View style={styles.barWrapper}>
+                              <LinearGradient
+                                colors={isCurrentHour ? ['#f97316', '#ea580c'] : ['#22c55e', '#16a34a']}
+                                style={[
+                                  styles.bar,
+                                  { height: Math.max(barHeight, steps > 0 ? 4 : 0) }
+                                ]}
+                              />
+                            </View>
+                            <Text style={[
+                              styles.barLabel,
+                              isCurrentHour && styles.barLabelCurrent
+                            ]}>
+                              {hour === 0 ? '12am' :
+                               hour === 12 ? '12pm' :
+                               hour < 12 ? `${hour}am` : `${hour - 12}pm`}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </View>
+                {/* Legend */}
+                <View style={styles.hourlyLegend}>
+                  <View style={styles.hourlyLegendItem}>
+                    <View style={[styles.hourlyLegendDot, { backgroundColor: '#22c55e' }]} />
+                    <Text style={styles.hourlyLegendText}>Past hours</Text>
+                  </View>
+                  <View style={styles.hourlyLegendItem}>
+                    <View style={[styles.hourlyLegendDot, { backgroundColor: '#f97316' }]} />
+                    <Text style={styles.hourlyLegendText}>Current hour</Text>
+                  </View>
+                </View>
+              </View>
+            )}
           </BlurView>
         </View>
 
@@ -965,13 +1111,13 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     flex: 1,
   },
   greetingTitle: {
-    fontSize: 20,
+    fontSize: fonts.h2,
     fontWeight: '700',
     color: colors.textWhite,
     marginBottom: 4,
   },
   greetingSubtitle: {
-    fontSize: 14,
+    fontSize: fonts.body,
     color: colors.textLight,
   },
   weatherContainer: {
@@ -1030,7 +1176,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     marginLeft: 20,
   },
   progressTitle: {
-    fontSize: 18,
+    fontSize: fonts.h3,
     fontWeight: '600',
     color: colors.textWhite,
     marginBottom: 12,
@@ -1057,6 +1203,91 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     color: colors.textMuted,
     marginTop: 4,
   },
+  // Hourly Graph Toggle
+  hourlyToggle: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 12,
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+  },
+  hourlyToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  hourlyToggleText: {
+    fontSize: 14,
+    color: colors.textLight,
+    marginLeft: 8,
+    fontWeight: '500',
+  },
+  // Hourly Graph Container
+  hourlyGraphContainer: {
+    marginTop: 12,
+  },
+  hourlyGraphContent: {
+    flexDirection: 'row',
+  },
+  barsContainer: {
+    flex: 1,
+  },
+  barsScrollContent: {
+    paddingHorizontal: 4,
+  },
+  barColumn: {
+    alignItems: 'center',
+    width: 28,
+    marginHorizontal: 2,
+  },
+  barValue: {
+    fontSize: 8,
+    color: colors.textMuted,
+    height: 14,
+    textAlign: 'center',
+  },
+  barWrapper: {
+    height: 80,
+    width: 16,
+    justifyContent: 'flex-end',
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  bar: {
+    width: '100%',
+    borderRadius: 4,
+  },
+  barLabel: {
+    fontSize: 9,
+    color: colors.textMuted,
+    marginTop: 4,
+  },
+  barLabelCurrent: {
+    color: '#f97316',
+    fontWeight: '600',
+  },
+  hourlyLegend: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 12,
+    gap: 16,
+  },
+  hourlyLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  hourlyLegendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  hourlyLegendText: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
   // Start Button
   startButton: {
     borderRadius: 30,
@@ -1082,7 +1313,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     marginBottom: 20,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: fonts.h3,
     fontWeight: '700',
     color: colors.textWhite,
     marginBottom: 16,
@@ -1191,7 +1422,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   causeProgressCard: {
     borderRadius: 20,
     overflow: 'hidden',
-    marginTop: 8,
+    marginTop: 24,
     borderWidth: 1,
     borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.08)',
   },
@@ -1270,13 +1501,13 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     marginBottom: 20,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: fonts.h3,
     fontWeight: '700',
     color: '#FFFFFF',
     marginBottom: 4,
   },
   modalSubtitle: {
-    fontSize: 14,
+    fontSize: fonts.body,
     color: 'rgba(255, 255, 255, 0.7)',
   },
   modalCloseButton: {
@@ -1330,7 +1561,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     height: 50,
   },
   causeTitle: {
-    fontSize: 13,
+    fontSize: fonts.bodySmall,
     fontWeight: '700',
     color: '#FFFFFF',
     marginBottom: 4,

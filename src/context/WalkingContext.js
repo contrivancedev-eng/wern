@@ -63,9 +63,9 @@ export const WalkingProvider = ({ children }) => {
 
   // Step detection variables for accelerometer - improved algorithm
   const lastMagnitude = useRef(0);
-  const stepThreshold = 1.3; // Higher threshold to avoid false positives (gravity is ~1.0)
+  const stepThreshold = 1.15; // Lower threshold for better sensitivity (gravity is ~1.0)
   const lastStepTime = useRef(0);
-  const minStepInterval = 400; // Minimum 400ms between steps (max ~150 steps/min which is fast walking)
+  const minStepInterval = 280; // Minimum 280ms between steps (max ~214 steps/min to capture fast walking)
 
   // Additional filtering for more accurate detection
   const magnitudeHistory = useRef([]);
@@ -82,6 +82,11 @@ export const WalkingProvider = ({ children }) => {
   const lastSentSteps = useRef(0); // Track last sent steps to avoid duplicate sends
   const currentStepCountRef = useRef(0); // Ref to track total step count for saving
   const SOCKET_SEND_INTERVAL = 5000; // Send step data every 5 seconds
+
+  // Session restore tracking
+  const isRestoredSession = useRef(false); // Track if current session was restored from storage
+  const restoredStepCount = useRef(0); // Step count when session was restored
+  const lastPedometerSteps = useRef(0); // Last known pedometer value for incremental counting
 
   // Milestone tracking - notify every 500 steps
   const lastMilestoneReached = useRef(0);
@@ -237,16 +242,26 @@ export const WalkingProvider = ({ children }) => {
             walkingStartTime.current = state.startTime ? new Date(state.startTime) : new Date();
 
             // Restore session steps
-            if (state.sessionSteps) {
-              setSessionSteps(state.sessionSteps);
+            const savedSessionSteps = state.sessionSteps || 0;
+            if (savedSessionSteps > 0) {
+              setSessionSteps(savedSessionSteps);
             }
 
-            // Calculate total steps for notification (sessionStartSteps + sessionSteps)
-            const totalStepsForNotification = (state.sessionStartSteps || 0) + (state.sessionSteps || 0);
+            // Calculate total steps for notification and restore
+            const totalStepsRestored = (state.sessionStartSteps || 0) + savedSessionSteps;
+
+            // Mark this as a restored session so pedometer handler doesn't reset count
+            isRestoredSession.current = true;
+            restoredStepCount.current = totalStepsRestored;
+            lastPedometerSteps.current = 0; // Will be set when pedometer starts
+
+            // Set the step count immediately to the restored value
+            setStepCount(totalStepsRestored);
+            console.log('📱 Restored walking session with steps:', totalStepsRestored);
 
             // Start background tracking with current step count (shows notification)
             try {
-              await BackgroundStepService.startBackgroundStepTracking(totalStepsForNotification);
+              await BackgroundStepService.startBackgroundStepTracking(totalStepsRestored);
             } catch (error) {
               console.log('Failed to start background tracking on restore:', error.message);
             }
@@ -417,6 +432,27 @@ export const WalkingProvider = ({ children }) => {
   // Handle app state changes (foreground/background)
   useEffect(() => {
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      // App going to background - save current state
+      if (nextAppState.match(/inactive|background/) && isWalking) {
+        console.log('📱 App going to background, saving step data...');
+        // Save current step count immediately
+        const currentCount = currentStepCountRef.current;
+        await AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
+          count: currentCount,
+          date: new Date().toDateString(),
+        }));
+
+        // Also save walking state with current session steps
+        await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify({
+          isWalking: true,
+          activeCause: activeCause,
+          sessionStartSteps: sessionStartSteps.current,
+          sessionSteps: currentSessionSteps.current,
+          startTime: walkingStartTime.current?.toISOString(),
+        }));
+        console.log('📱 Saved step count before background:', currentCount);
+      }
+
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
         // App came to foreground - check for new day
         await checkAndResetForNewDay();
@@ -427,12 +463,19 @@ export const WalkingProvider = ({ children }) => {
             const now = new Date();
             const result = await Pedometer.getStepCountAsync(walkingStartTime.current, now);
             if (result && result.steps > 0) {
-              // Update session steps from pedometer (more accurate for background)
-              setSessionSteps(result.steps);
-              setStepCount(prev => {
-                const newCount = sessionStartSteps.current + result.steps;
-                return Math.max(prev, newCount);
-              });
+              // For restored sessions, handle incremental update
+              if (isRestoredSession.current) {
+                const newTotal = restoredStepCount.current + result.steps;
+                setSessionSteps(prev => Math.max(prev, result.steps));
+                setStepCount(prev => Math.max(prev, newTotal));
+              } else {
+                // Update session steps from pedometer (more accurate for background)
+                setSessionSteps(result.steps);
+                setStepCount(prev => {
+                  const newCount = sessionStartSteps.current + result.steps;
+                  return Math.max(prev, newCount);
+                });
+              }
             }
           } catch (error) {
             console.log('Error getting pedometer steps on foreground:', error);
@@ -445,7 +488,7 @@ export const WalkingProvider = ({ children }) => {
     return () => {
       subscription.remove();
     };
-  }, [isWalking, isPedometerAvailable, checkAndResetForNewDay]);
+  }, [isWalking, isPedometerAvailable, checkAndResetForNewDay, activeCause]);
 
   // Step counting when walking
   // PEDOMETER is the PRIMARY source (accurate, works in background/locked)
@@ -456,13 +499,33 @@ export const WalkingProvider = ({ children }) => {
       if (isPedometerAvailable) {
         console.log('📊 Starting pedometer for step counting');
         pedometerSubscription.current = Pedometer.watchStepCount((result) => {
-          // Pedometer is the authoritative source for step count
-          const pedometerTotal = sessionStartSteps.current + result.steps;
-          console.log('📊 Pedometer update:', { sessionSteps: result.steps, total: pedometerTotal });
+          // Handle restored sessions differently - use incremental counting
+          if (isRestoredSession.current) {
+            // For restored sessions, calculate incremental steps since pedometer started
+            const incrementalSteps = result.steps - lastPedometerSteps.current;
 
-          // Always use pedometer values (more accurate than accelerometer)
-          setSessionSteps(result.steps);
-          setStepCount(pedometerTotal);
+            if (incrementalSteps > 0) {
+              // Add incremental steps to the restored count
+              const newTotal = restoredStepCount.current + (result.steps);
+              console.log('📊 Pedometer update (restored):', {
+                pedometerSteps: result.steps,
+                restoredBase: restoredStepCount.current,
+                newTotal
+              });
+
+              setSessionSteps(prev => prev + incrementalSteps);
+              setStepCount(newTotal);
+              lastPedometerSteps.current = result.steps;
+            }
+          } else {
+            // Normal session - use absolute counting
+            const pedometerTotal = sessionStartSteps.current + result.steps;
+            console.log('📊 Pedometer update:', { sessionSteps: result.steps, total: pedometerTotal });
+
+            // Always use pedometer values (more accurate than accelerometer)
+            setSessionSteps(result.steps);
+            setStepCount(pedometerTotal);
+          }
         });
       }
 
@@ -491,7 +554,7 @@ export const WalkingProvider = ({ children }) => {
           if (
             lastMagnitude.current > stepThreshold &&
             smoothedMagnitude < lastMagnitude.current &&
-            lastMagnitude.current > smoothedMagnitude + 0.05 &&
+            lastMagnitude.current > smoothedMagnitude + 0.03 && // Lower difference for better sensitivity
             timeSinceLastStep > minStepInterval &&
             !isStepPeak.current
           ) {
@@ -504,7 +567,7 @@ export const WalkingProvider = ({ children }) => {
           }
 
           // Reset peak flag when magnitude drops below threshold
-          if (smoothedMagnitude < stepThreshold - 0.1) {
+          if (smoothedMagnitude < stepThreshold - 0.08) {
             isStepPeak.current = false;
           }
 
@@ -542,6 +605,11 @@ export const WalkingProvider = ({ children }) => {
     setSessionSteps(0);
     setActiveCause(causeId);
     setIsWalking(true);
+
+    // Reset restored session flags for fresh sessions
+    isRestoredSession.current = false;
+    restoredStepCount.current = 0;
+    lastPedometerSteps.current = 0;
 
     // Reset milestone tracking to current step count floor
     // (so first notification is at next 500 boundary after current steps)
@@ -718,6 +786,11 @@ export const WalkingProvider = ({ children }) => {
     currentCauseId.current = null;
     currentSessionSteps.current = 0;
     lastSentSteps.current = 0;
+
+    // Reset restored session tracking
+    isRestoredSession.current = false;
+    restoredStepCount.current = 0;
+    lastPedometerSteps.current = 0;
   }, [stepCount, kilometre, kcal, litres, sessionSteps]);
 
   // Refresh steps manually

@@ -6,6 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { Icon, Toast } from '../../components';
 import { useTheme, useAuth } from '../../context';
+import { fonts } from '../../utils';
 
 const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
 const activityLevels = ['Beginner', 'Intermediate', 'Advanced'];
@@ -33,6 +34,12 @@ const ProfileScreen = () => {
   const [monthlySteps, setMonthlySteps] = useState({});
   const [toast, setToast] = useState({ visible: false, message: '', type: 'error' });
 
+  // Transaction history state
+  const [transactionHistory, setTransactionHistory] = useState(null);
+  const [transactionsByDate, setTransactionsByDate] = useState({});
+  const [selectedDayDetails, setSelectedDayDetails] = useState(null);
+  const [showDayDetailsModal, setShowDayDetailsModal] = useState(false);
+
   const showToast = (message, type = 'error') => {
     setToast({ visible: true, message, type });
   };
@@ -40,6 +47,43 @@ const ProfileScreen = () => {
   const hideToast = () => {
     setToast({ visible: false, message: '', type: 'error' });
   };
+
+  // Fetch step transaction history
+  const fetchTransactionHistory = useCallback(async () => {
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${API_URL}get-step-transection-history?token=${token}`);
+      const data = await response.json();
+
+      if (data.status === true && data.data) {
+        setTransactionHistory(data.data);
+
+        // Group transactions by date
+        if (data.data.transactions) {
+          const grouped = {};
+          data.data.transactions.forEach((transaction) => {
+            const date = transaction.is_date;
+            if (!grouped[date]) {
+              grouped[date] = {
+                transactions: [],
+                totalSteps: 0,
+                totalKm: 0,
+                totalKcal: 0,
+              };
+            }
+            grouped[date].transactions.push(transaction);
+            grouped[date].totalSteps += parseInt(transaction.steps) || 0;
+            grouped[date].totalKm += parseFloat(transaction.kilometre) || 0;
+            grouped[date].totalKcal += parseFloat(transaction.kcal) || 0;
+          });
+          setTransactionsByDate(grouped);
+        }
+      }
+    } catch (error) {
+      console.log('Error fetching transaction history:', error.message);
+    }
+  }, [token]);
 
   // Fetch all profile data from consolidated API
   const fetchProfileData = useCallback(async () => {
@@ -165,9 +209,10 @@ const ProfileScreen = () => {
   // Fetch fresh profile data and user details on mount
   useEffect(() => {
     fetchProfileData();
+    fetchTransactionHistory();
     // Refresh user details from API to get fresh data (not from local storage)
     refreshUserDetails();
-  }, [fetchProfileData]);
+  }, [fetchProfileData, fetchTransactionHistory]);
 
   // Upload image to API
   const uploadUserImage = async (imageAsset) => {
@@ -380,6 +425,45 @@ const ProfileScreen = () => {
     return streak;
   }, [calendarData]);
 
+  // Handle date click for details
+  const handleDateClick = (day) => {
+    if (!day || day.status === 'upcoming') return;
+
+    const today = new Date();
+    const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`;
+    const dayData = transactionsByDate[dateKey];
+
+    setSelectedDayDetails({
+      date: dateKey,
+      day: day.day,
+      month: today.toLocaleDateString('en-US', { month: 'long' }),
+      year: today.getFullYear(),
+      status: day.status,
+      steps: day.steps,
+      ...dayData,
+    });
+    setShowDayDetailsModal(true);
+  };
+
+  // Get cause name by ID
+  const getCauseName = (categoryId) => {
+    const causes = {
+      1: 'Forest Restoration',
+      2: 'Clean Water',
+      3: 'Food Security',
+      4: "Women's Empowerment",
+      5: 'Kids Walk for Labubu',
+    };
+    return causes[categoryId] || 'Walking';
+  };
+
+  // Format time from event_time
+  const formatTime = (eventTime) => {
+    if (!eventTime) return '';
+    const date = new Date(eventTime);
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+
   // Group calendar into weeks (starting from Sunday)
   const getCalendarWeeks = () => {
     const weeks = [];
@@ -514,6 +598,35 @@ const ProfileScreen = () => {
               </TouchableOpacity>
             </View>
 
+            {/* All-time Totals Summary */}
+            {transactionHistory?.totals && (
+              <View style={styles.totalsSummary}>
+                <View style={styles.totalItem}>
+                  <Icon name="footsteps" size={18} color="#22c55e" />
+                  <Text style={styles.totalValue}>
+                    {transactionHistory.totals.total_steps?.toLocaleString() || 0}
+                  </Text>
+                  <Text style={styles.totalLabel}>Total Steps</Text>
+                </View>
+                <View style={styles.totalDivider} />
+                <View style={styles.totalItem}>
+                  <Icon name="walk" size={18} color="#3b82f6" />
+                  <Text style={styles.totalValue}>
+                    {transactionHistory.totals.total_km?.toFixed(2) || '0.00'}
+                  </Text>
+                  <Text style={styles.totalLabel}>Total Km</Text>
+                </View>
+                <View style={styles.totalDivider} />
+                <View style={styles.totalItem}>
+                  <Icon name="flame" size={18} color="#f97316" />
+                  <Text style={styles.totalValue}>
+                    {transactionHistory.totals.total_kcal?.toFixed(0) || 0}
+                  </Text>
+                  <Text style={styles.totalLabel}>Total Kcal</Text>
+                </View>
+              </View>
+            )}
+
             {/* Calendar */}
             <View style={styles.calendar}>
               {/* Week days header */}
@@ -523,22 +636,31 @@ const ProfileScreen = () => {
                 ))}
               </View>
 
-              {/* Calendar grid */}
+              {/* Calendar grid - now clickable */}
               {getCalendarWeeks().map((week, weekIndex) => (
                 <View key={weekIndex} style={styles.calendarRow}>
                   {week.map((day, dayIndex) => (
-                    <View key={dayIndex} style={styles.calendarCell}>
+                    <TouchableOpacity
+                      key={dayIndex}
+                      style={styles.calendarCell}
+                      onPress={() => handleDateClick(day)}
+                      disabled={!day || day.status === 'upcoming'}
+                      activeOpacity={0.7}
+                    >
                       {day ? (
                         <>
                           {renderStatusIcon(day.status)}
                           <Text style={styles.calendarDay}>{day.day.toString().padStart(2, '0')}</Text>
                         </>
                       ) : null}
-                    </View>
+                    </TouchableOpacity>
                   ))}
                 </View>
               ))}
             </View>
+
+            {/* Tap hint */}
+            <Text style={styles.tapHint}>Tap on a date to view details</Text>
 
             {/* Legend */}
             <View style={styles.legend}>
@@ -866,6 +988,123 @@ const ProfileScreen = () => {
         </TouchableOpacity>
       </Modal>
 
+      {/* Day Details Modal */}
+      <Modal
+        visible={showDayDetailsModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDayDetailsModal(false)}
+      >
+        <View style={styles.dayDetailsOverlay}>
+          <View style={styles.dayDetailsModal}>
+            {/* Header */}
+            <View style={styles.dayDetailsHeader}>
+              <View>
+                <Text style={styles.dayDetailsDate}>
+                  {selectedDayDetails?.month} {selectedDayDetails?.day}, {selectedDayDetails?.year}
+                </Text>
+                <View style={styles.dayDetailsStatusRow}>
+                  {renderStatusIcon(selectedDayDetails?.status)}
+                  <Text style={styles.dayDetailsStatusText}>
+                    {selectedDayDetails?.status === 'completed' ? 'Goal Completed' :
+                     selectedDayDetails?.status === 'current' ? 'In Progress' : 'Missed'}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.dayDetailsCloseBtn}
+                onPress={() => setShowDayDetailsModal(false)}
+              >
+                <Icon name="close" size={24} color={colors.textWhite} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Day Summary */}
+            <View style={styles.daySummary}>
+              <View style={styles.daySummaryItem}>
+                <Icon name="footsteps" size={20} color="#22c55e" />
+                <Text style={styles.daySummaryValue}>
+                  {selectedDayDetails?.totalSteps?.toLocaleString() || selectedDayDetails?.steps || 0}
+                </Text>
+                <Text style={styles.daySummaryLabel}>Steps</Text>
+              </View>
+              <View style={styles.daySummaryDivider} />
+              <View style={styles.daySummaryItem}>
+                <Icon name="walk" size={20} color="#3b82f6" />
+                <Text style={styles.daySummaryValue}>
+                  {selectedDayDetails?.totalKm?.toFixed(2) || '0.00'}
+                </Text>
+                <Text style={styles.daySummaryLabel}>Km</Text>
+              </View>
+              <View style={styles.daySummaryDivider} />
+              <View style={styles.daySummaryItem}>
+                <Icon name="flame" size={20} color="#f97316" />
+                <Text style={styles.daySummaryValue}>
+                  {selectedDayDetails?.totalKcal?.toFixed(0) || 0}
+                </Text>
+                <Text style={styles.daySummaryLabel}>Kcal</Text>
+              </View>
+            </View>
+
+            {/* Activity List */}
+            <Text style={styles.activityTitle}>Activity Log</Text>
+            <ScrollView style={styles.activityList} showsVerticalScrollIndicator={false}>
+              {selectedDayDetails?.transactions?.length > 0 ? (
+                selectedDayDetails.transactions.map((transaction, index) => (
+                  <View key={transaction.id || index} style={styles.activityItem}>
+                    <View style={styles.activityLeft}>
+                      <View style={[
+                        styles.activityIcon,
+                        { backgroundColor: transaction.category_id === '1' ? 'rgba(34, 197, 94, 0.2)' :
+                          transaction.category_id === '2' ? 'rgba(59, 130, 246, 0.2)' :
+                          transaction.category_id === '3' ? 'rgba(34, 197, 94, 0.2)' :
+                          transaction.category_id === '4' ? 'rgba(244, 114, 182, 0.2)' :
+                          'rgba(251, 191, 36, 0.2)' }
+                      ]}>
+                        <Icon
+                          name={transaction.category_id === '2' ? 'water' : 'leaf'}
+                          size={16}
+                          color={transaction.category_id === '1' ? '#22c55e' :
+                            transaction.category_id === '2' ? '#3b82f6' :
+                            transaction.category_id === '3' ? '#22c55e' :
+                            transaction.category_id === '4' ? '#f472b6' :
+                            '#fbbf24'}
+                        />
+                      </View>
+                      <View style={styles.activityInfo}>
+                        <Text style={styles.activityCause}>
+                          {getCauseName(transaction.category_id)}
+                        </Text>
+                        <Text style={styles.activityTime}>
+                          {formatTime(transaction.event_time)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.activityRight}>
+                      <Text style={styles.activitySteps}>+{transaction.steps}</Text>
+                      <Text style={styles.activityKm}>{parseFloat(transaction.kilometre).toFixed(3)} km</Text>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.noActivityContainer}>
+                  <Icon name="calendar-outline" size={48} color={colors.textMuted} />
+                  <Text style={styles.noActivityText}>No activity recorded for this day</Text>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Close Button */}
+            <TouchableOpacity
+              style={styles.dayDetailsButton}
+              onPress={() => setShowDayDetailsModal(false)}
+            >
+              <Text style={styles.dayDetailsButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Toast
         visible={toast.visible}
         message={toast.message}
@@ -932,7 +1171,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   },
   // User Info
   userName: {
-    fontSize: 24,
+    fontSize: fonts.h2,
     fontWeight: '700',
     color: colors.textWhite,
     textAlign: 'center',
@@ -969,7 +1208,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     fontWeight: '600',
   },
   tierTitle: {
-    fontSize: 18,
+    fontSize: fonts.h3,
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -1057,7 +1296,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     marginLeft: 12,
   },
   streakNumber: {
-    fontSize: 24,
+    fontSize: fonts.h2,
     fontWeight: '700',
     color: colors.textWhite,
   },
@@ -1373,6 +1612,191 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     alignItems: 'center',
   },
   streakInfoButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  // Totals Summary
+  totalsSummary: {
+    flexDirection: 'row',
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  totalItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  totalValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.textWhite,
+    marginTop: 4,
+  },
+  totalLabel: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  totalDivider: {
+    width: 1,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)',
+  },
+  // Tap hint
+  tapHint: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginBottom: 12,
+    fontStyle: 'italic',
+  },
+  // Day Details Modal
+  dayDetailsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  dayDetailsModal: {
+    backgroundColor: isDarkMode ? '#1a3a40' : '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  dayDetailsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  dayDetailsDate: {
+    fontSize: fonts.h2,
+    fontWeight: '700',
+    color: colors.textWhite,
+  },
+  dayDetailsStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  dayDetailsStatusText: {
+    fontSize: 14,
+    color: colors.textLight,
+    marginLeft: 8,
+  },
+  dayDetailsCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Day Summary
+  daySummary: {
+    flexDirection: 'row',
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+  },
+  daySummaryItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  daySummaryValue: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.textWhite,
+    marginTop: 6,
+  },
+  daySummaryLabel: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  daySummaryDivider: {
+    width: 1,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)',
+    marginHorizontal: 8,
+  },
+  // Activity List
+  activityTitle: {
+    fontSize: fonts.h4,
+    fontWeight: '600',
+    color: colors.textWhite,
+    marginBottom: 12,
+  },
+  activityList: {
+    maxHeight: 250,
+  },
+  activityItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  activityLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  activityIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activityInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  activityCause: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textWhite,
+  },
+  activityTime: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  activityRight: {
+    alignItems: 'flex-end',
+  },
+  activitySteps: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#22c55e',
+  },
+  activityKm: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  noActivityContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noActivityText: {
+    fontSize: 14,
+    color: colors.textMuted,
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  dayDetailsButton: {
+    backgroundColor: '#f5c842',
+    paddingVertical: 14,
+    borderRadius: 25,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  dayDetailsButtonText: {
     fontSize: 14,
     fontWeight: '700',
     color: '#1a1a1a',

@@ -3,6 +3,7 @@ import { StyleSheet, View, Text, TextInput, TouchableOpacity, ActivityIndicator,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GradientBackground, GlassCard, GradientButton, Icon, Toast } from '../../components';
 import { useTheme } from '../../context/ThemeContext';
+import { fonts } from '../../utils';
 
 const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
 
@@ -205,14 +206,14 @@ const createStyles = (colors) => StyleSheet.create({
     marginBottom: 30,
   },
   title: {
-    fontSize: 32,
+    fontSize: fonts.h1,
     fontWeight: '700',
     color: colors.textWhite,
     textAlign: 'center',
     marginBottom: 12,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: fonts.body,
     color: colors.textLight,
     textAlign: 'center',
     lineHeight: 24,
