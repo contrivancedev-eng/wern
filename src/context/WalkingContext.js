@@ -502,105 +502,119 @@ export const WalkingProvider = ({ children }) => {
 
   // Step counting when walking
   // PEDOMETER is the PRIMARY source (accurate, works in background/locked)
-  // Accelerometer is secondary for responsive UI feedback only
+  // We use BOTH watchStepCount AND periodic getStepCountAsync for reliability
+  const pedometerSyncInterval = useRef(null);
+
   useEffect(() => {
     if (isWalking) {
       // PEDOMETER: Primary step counting - accurate and works when phone is locked
       if (isPedometerAvailable) {
         console.log('📊 Starting pedometer for step counting');
+
+        // Method 1: Real-time watch (may sometimes miss updates)
         pedometerSubscription.current = Pedometer.watchStepCount(async (result) => {
           let newTotalSteps = 0;
 
           // Handle restored sessions differently - use incremental counting
           if (isRestoredSession.current) {
-            // For restored sessions, calculate incremental steps since pedometer started
             const incrementalSteps = result.steps - lastPedometerSteps.current;
-
             if (incrementalSteps > 0) {
-              // Add incremental steps to the restored count
-              newTotalSteps = restoredStepCount.current + (result.steps);
-              console.log('📊 Pedometer update (restored):', {
-                pedometerSteps: result.steps,
-                restoredBase: restoredStepCount.current,
-                newTotal: newTotalSteps
-              });
-
+              newTotalSteps = restoredStepCount.current + result.steps;
               setSessionSteps(prev => prev + incrementalSteps);
-              // Use Math.max to ensure we NEVER go backwards
               setStepCount(prev => {
                 const finalCount = Math.max(prev, newTotalSteps);
-                newTotalSteps = finalCount; // Update for saving below
+                currentStepCountRef.current = finalCount;
                 return finalCount;
               });
               lastPedometerSteps.current = result.steps;
             }
           } else {
-            // Normal session - use absolute counting
             newTotalSteps = sessionStartSteps.current + result.steps;
-            console.log('📊 Pedometer update:', { sessionSteps: result.steps, sessionStart: sessionStartSteps.current, total: newTotalSteps });
-
-            // Always use pedometer values (more accurate than accelerometer)
             setSessionSteps(result.steps);
-            // Use Math.max to ensure we NEVER go backwards - critical for preventing step loss
             setStepCount(prev => {
               const finalCount = Math.max(prev, newTotalSteps);
-              newTotalSteps = finalCount; // Update for saving below
+              currentStepCountRef.current = finalCount;
               return finalCount;
             });
           }
 
-          // CRITICAL: Save step count immediately to AsyncStorage
-          // This ensures steps are persisted even if app is force-killed
+          // Save to AsyncStorage
           if (newTotalSteps > 0) {
-            currentStepCountRef.current = newTotalSteps;
-            try {
-              await AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
-                count: newTotalSteps,
-                date: new Date().toDateString(),
-              }));
-            } catch (e) {
-              // Silent fail - the useEffect will also save
-            }
+            AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
+              count: newTotalSteps,
+              date: new Date().toDateString(),
+            })).catch(() => {});
           }
         });
+
+        // Method 2: Periodic sync every 2 seconds as BACKUP (catches missed steps)
+        pedometerSyncInterval.current = setInterval(async () => {
+          if (walkingStartTime.current) {
+            try {
+              const now = new Date();
+              const result = await Pedometer.getStepCountAsync(walkingStartTime.current, now);
+              if (result && result.steps > 0) {
+                let newTotalSteps = 0;
+
+                if (isRestoredSession.current) {
+                  newTotalSteps = restoredStepCount.current + result.steps;
+                } else {
+                  newTotalSteps = sessionStartSteps.current + result.steps;
+                }
+
+                // Only update if this gives us MORE steps (backup sync)
+                setStepCount(prev => {
+                  if (newTotalSteps > prev) {
+                    console.log('📊 Pedometer sync caught missed steps:', newTotalSteps - prev);
+                    currentStepCountRef.current = newTotalSteps;
+                    setSessionSteps(result.steps);
+                    AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
+                      count: newTotalSteps,
+                      date: new Date().toDateString(),
+                    })).catch(() => {});
+                    return newTotalSteps;
+                  }
+                  return prev;
+                });
+              }
+            } catch (e) {
+              console.log('Pedometer sync error:', e.message);
+            }
+          }
+        }, 2000); // Sync every 2 seconds
       }
 
       // ACCELEROMETER: Only used as FALLBACK when pedometer is not available
-      // When pedometer IS available, accelerometer is disabled to prevent double counting
       if (Platform.OS !== 'web' && !isPedometerAvailable) {
         console.log('📊 Using accelerometer as fallback (no pedometer)');
         let lastAccelSaveTime = 0;
-        const ACCEL_SAVE_INTERVAL = 2000; // Save every 2 seconds max for accelerometer
+        const ACCEL_SAVE_INTERVAL = 2000;
 
-        Accelerometer.setUpdateInterval(100); // 100ms = 10 updates/second
+        // More sensitive settings for better detection
+        Accelerometer.setUpdateInterval(50); // 50ms = 20 updates/second (more responsive)
         accelerometerSubscription.current = Accelerometer.addListener(({ x, y, z }) => {
           const magnitude = Math.sqrt(x * x + y * y + z * z);
           const now = Date.now();
 
-          // Add to history for smoothing
           magnitudeHistory.current.push(magnitude);
           if (magnitudeHistory.current.length > HISTORY_SIZE) {
             magnitudeHistory.current.shift();
           }
 
-          // Calculate smoothed magnitude (moving average)
           const smoothedMagnitude = magnitudeHistory.current.reduce((a, b) => a + b, 0) / magnitudeHistory.current.length;
-
-          // Improved step detection with peak detection
           const timeSinceLastStep = now - lastStepTime.current;
 
-          // Detect peak: previous smoothed was higher than current AND above threshold
+          // More sensitive step detection
           if (
             lastMagnitude.current > stepThreshold &&
             smoothedMagnitude < lastMagnitude.current &&
-            lastMagnitude.current > smoothedMagnitude + 0.03 && // Lower difference for better sensitivity
+            lastMagnitude.current > smoothedMagnitude + 0.02 && // Lower threshold for better sensitivity
             timeSinceLastStep > minStepInterval &&
             !isStepPeak.current
           ) {
             isStepPeak.current = true;
             lastStepTime.current = now;
 
-            // Only increment if pedometer is NOT available
             setSessionSteps(prev => prev + 1);
             setStepCount(prev => {
               const newCount = prev + 1;
@@ -645,6 +659,10 @@ export const WalkingProvider = ({ children }) => {
         if (pedometerSubscription.current) {
           pedometerSubscription.current.remove();
           pedometerSubscription.current = null;
+        }
+        if (pedometerSyncInterval.current) {
+          clearInterval(pedometerSyncInterval.current);
+          pedometerSyncInterval.current = null;
         }
       };
     }
@@ -849,6 +867,10 @@ export const WalkingProvider = ({ children }) => {
     if (pedometerSubscription.current) {
       pedometerSubscription.current.remove();
       pedometerSubscription.current = null;
+    }
+    if (pedometerSyncInterval.current) {
+      clearInterval(pedometerSyncInterval.current);
+      pedometerSyncInterval.current = null;
     }
 
     walkingStartTime.current = null;
