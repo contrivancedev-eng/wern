@@ -635,7 +635,28 @@ export const WalkingProvider = ({ children }) => {
   const startWalking = useCallback(async (causeId, userId = null, location = null) => {
     const now = new Date();
     walkingStartTime.current = now;
-    sessionStartSteps.current = stepCount;
+
+    // CRITICAL: Ensure we have the correct step count from AsyncStorage
+    // This prevents starting from 0 if the state hasn't been restored yet
+    let actualStepCount = stepCount;
+    try {
+      const savedStepCount = await AsyncStorage.getItem(storageKeys.current.stepCount);
+      if (savedStepCount) {
+        const parsed = JSON.parse(savedStepCount);
+        const today = new Date().toDateString();
+        if (parsed.date === today && parsed.count > actualStepCount) {
+          actualStepCount = parsed.count;
+          // Update state to match
+          setStepCount(parsed.count);
+          setTodaySteps(parsed.count);
+          console.log('📱 Restored step count before walking:', parsed.count);
+        }
+      }
+    } catch (e) {
+      console.log('Error reading step count before walking:', e);
+    }
+
+    sessionStartSteps.current = actualStepCount;
     setSessionSteps(0);
     setActiveCause(causeId);
     setIsWalking(true);
