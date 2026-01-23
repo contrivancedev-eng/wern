@@ -724,30 +724,19 @@ export const WalkingProvider = ({ children }) => {
       await SocketService.connect();
 
       // Set up step acknowledgment handler
-      // Socket response provides the server's calculated values
-      // Update display to match server values for consistency
+      // Socket response ONLY provides km/kcal/litres - step count is LOCAL and INDEPENDENT
+      // We send steps to server, server calculates km/kcal/litres and sends back
+      // But server response should NEVER change our local step count
       SocketService.onStepAck(async (data) => {
         console.log('✅ Step acknowledged from server:', JSON.stringify(data));
-
-        // Get server's step count (this is the authoritative daily total)
-        const serverSteps = data.steps ?? data.total_steps ?? data.step_count ?? data.totalSteps;
-        if (serverSteps !== undefined && serverSteps > 0) {
-          // Save to local storage
-          await AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
-            count: serverSteps,
-            date: new Date().toDateString(),
-          }));
-          // Update UI state to match server - ensures km/kcal/litres correspond to displayed steps
-          setStepCount(prev => Math.max(prev, serverSteps));
-          setTodaySteps(prev => Math.max(prev, serverSteps));
-        }
 
         // Update goal from server if provided
         if (data.goal && data.goal > 0) {
           setGoalSteps(data.goal);
         }
 
-        // Update other stats (km, kcal, litres) - these come from server
+        // ONLY update km, kcal, litres from server - these are calculated by server
+        // Step count remains completely LOCAL and independent
         const kmValue = data.kilometre ?? data.km ?? data.kilometers ?? data.distance;
         if (kmValue !== undefined) {
           setKilometre(kmValue);
@@ -761,9 +750,10 @@ export const WalkingProvider = ({ children }) => {
           setLitres(litresValue);
         }
 
-        // Save all stats to local DB
+        // Save stats to local DB - use LOCAL step count, not server's
+        const localStepCount = currentStepCountRef.current;
         await AsyncStorage.setItem(storageKeys.current.dailyStats, JSON.stringify({
-          stepCount: serverSteps || currentStepCountRef.current,
+          stepCount: localStepCount,
           kilometre: kmValue || kilometre,
           kcal: kcalValue || kcal,
           litres: litresValue || litres,
@@ -771,24 +761,27 @@ export const WalkingProvider = ({ children }) => {
         }));
       });
 
-      // Start periodic socket updates - use refs to get current values
-      // Only send if steps have changed since last send to avoid duplicate accumulation
+      // Start periodic socket updates - send TOTAL steps (not session) for accurate km/kcal/litres calculation
+      // Only send if steps have changed since last send
       lastSentSteps.current = 0; // Reset on start
       socketSendInterval.current = setInterval(() => {
-        if (currentUserId.current && currentSessionSteps.current > 0) {
-          // Only send if steps have changed since last send
-          if (currentSessionSteps.current !== lastSentSteps.current) {
+        const totalSteps = currentStepCountRef.current; // Use total steps, not session
+        if (currentUserId.current && totalSteps > 0) {
+          // Only send if total steps have changed since last send
+          if (totalSteps !== lastSentSteps.current) {
             const stepData = {
               user_id: currentUserId.current,
               category_id: currentCauseId.current,
-              steps: currentSessionSteps.current,
+              steps: totalSteps, // Send TOTAL daily steps for accurate km/kcal/litres
+              session_steps: currentSessionSteps.current, // Also send session steps for reference
               timestamp: Math.floor(Date.now() / 1000),
               type: 'walk',
               lat: currentLocation.current?.lat || 0,
               lng: currentLocation.current?.lng || 0,
             };
             SocketService.sendStepEvent(stepData);
-            lastSentSteps.current = currentSessionSteps.current;
+            lastSentSteps.current = totalSteps;
+            console.log('📤 Sent steps to server:', totalSteps);
           }
         }
       }, SOCKET_SEND_INTERVAL);
@@ -800,18 +793,21 @@ export const WalkingProvider = ({ children }) => {
 
   // Stop walking
   const stopWalking = useCallback(async () => {
-    // Send final step data before disconnecting - use refs to get current values
-    if (currentUserId.current && currentSessionSteps.current > 0 && currentCauseId.current) {
+    // Send final step data before disconnecting - send TOTAL steps for accurate server calculation
+    const totalSteps = currentStepCountRef.current;
+    if (currentUserId.current && totalSteps > 0 && currentCauseId.current) {
       const finalStepData = {
         user_id: currentUserId.current,
         category_id: currentCauseId.current,
-        steps: currentSessionSteps.current,
+        steps: totalSteps, // Send TOTAL daily steps
+        session_steps: currentSessionSteps.current, // Also include session steps for reference
         timestamp: Math.floor(Date.now() / 1000),
         type: 'walk',
         lat: currentLocation.current?.lat || 0,
         lng: currentLocation.current?.lng || 0,
       };
       SocketService.sendStepEvent(finalStepData);
+      console.log('📤 Final steps sent to server:', totalSteps);
     }
 
     setIsWalking(false);
