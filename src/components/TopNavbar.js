@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Platform, Image, Modal, Switch } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, Platform, Image, Modal, Switch, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from './Icon';
 import Logo from './Logo';
@@ -10,7 +10,47 @@ const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress }) =
   const insets = useSafeAreaInsets();
   const [showMenu, setShowMenu] = useState(false);
   const { colors, isDarkMode, toggleTheme } = useTheme();
-  const { user, litties } = useAuth();
+  const { user, litties, walletAnimationTrigger } = useAuth();
+
+  // Wallet bounce animation
+  const walletScale = useRef(new Animated.Value(1)).current;
+  const walletGlow = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (walletAnimationTrigger > 0) {
+      // Play bounce animation when coins land
+      Animated.sequence([
+        // Quick scale up with glow
+        Animated.parallel([
+          Animated.spring(walletScale, {
+            toValue: 1.25,
+            friction: 3,
+            tension: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(walletGlow, {
+            toValue: 1,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+        ]),
+        // Bounce back down
+        Animated.parallel([
+          Animated.spring(walletScale, {
+            toValue: 1,
+            friction: 4,
+            tension: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(walletGlow, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start();
+    }
+  }, [walletAnimationTrigger]);
 
   const userImage = user?.user_image;
 
@@ -29,13 +69,34 @@ const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress }) =
         </View>
 
         <View style={styles.rightSection}>
-          <TouchableOpacity
-            style={[styles.littiesContainer, { backgroundColor: colors.cardBackground }]}
-            onPress={onLittiesPress}
+          <Animated.View
+            style={{
+              transform: [{ scale: walletScale }],
+            }}
           >
-            <Icon name="wallet" size={18} color={colors.accent} />
-            <Text style={[styles.littiesText, { color: colors.textWhite }]}>{litties} Litties</Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.littiesContainer, { backgroundColor: colors.cardBackground }]}
+              onPress={onLittiesPress}
+            >
+              <Animated.View
+                style={{
+                  opacity: walletGlow.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 0.5],
+                  }),
+                  position: 'absolute',
+                  top: -4,
+                  left: -4,
+                  right: -4,
+                  bottom: -4,
+                  borderRadius: 24,
+                  backgroundColor: '#FFD700',
+                }}
+              />
+              <Icon name="wallet" size={18} color={colors.accent} />
+              <Text style={[styles.littiesText, { color: colors.textWhite }]}>{litties} Litties</Text>
+            </TouchableOpacity>
+          </Animated.View>
 
           <TouchableOpacity
             style={styles.avatarContainer}

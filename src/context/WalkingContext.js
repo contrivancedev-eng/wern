@@ -386,7 +386,8 @@ export const WalkingProvider = ({ children }) => {
         if (savedState) {
           const state = JSON.parse(savedState);
           state.sessionSteps = sessionSteps;
-          await AsyncStorage.setItem(WALKING_STATE_KEY, JSON.stringify(state));
+          // Use user-specific key, not legacy key
+          await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify(state));
         }
       };
       saveSession();
@@ -498,7 +499,9 @@ export const WalkingProvider = ({ children }) => {
       // PEDOMETER: Primary step counting - accurate and works when phone is locked
       if (isPedometerAvailable) {
         console.log('📊 Starting pedometer for step counting');
-        pedometerSubscription.current = Pedometer.watchStepCount((result) => {
+        pedometerSubscription.current = Pedometer.watchStepCount(async (result) => {
+          let newTotalSteps = 0;
+
           // Handle restored sessions differently - use incremental counting
           if (isRestoredSession.current) {
             // For restored sessions, calculate incremental steps since pedometer started
@@ -506,25 +509,39 @@ export const WalkingProvider = ({ children }) => {
 
             if (incrementalSteps > 0) {
               // Add incremental steps to the restored count
-              const newTotal = restoredStepCount.current + (result.steps);
+              newTotalSteps = restoredStepCount.current + (result.steps);
               console.log('📊 Pedometer update (restored):', {
                 pedometerSteps: result.steps,
                 restoredBase: restoredStepCount.current,
-                newTotal
+                newTotal: newTotalSteps
               });
 
               setSessionSteps(prev => prev + incrementalSteps);
-              setStepCount(newTotal);
+              setStepCount(newTotalSteps);
               lastPedometerSteps.current = result.steps;
             }
           } else {
             // Normal session - use absolute counting
-            const pedometerTotal = sessionStartSteps.current + result.steps;
-            console.log('📊 Pedometer update:', { sessionSteps: result.steps, total: pedometerTotal });
+            newTotalSteps = sessionStartSteps.current + result.steps;
+            console.log('📊 Pedometer update:', { sessionSteps: result.steps, total: newTotalSteps });
 
             // Always use pedometer values (more accurate than accelerometer)
             setSessionSteps(result.steps);
-            setStepCount(pedometerTotal);
+            setStepCount(newTotalSteps);
+          }
+
+          // CRITICAL: Save step count immediately to AsyncStorage
+          // This ensures steps are persisted even if app is force-killed
+          if (newTotalSteps > 0) {
+            currentStepCountRef.current = newTotalSteps;
+            try {
+              await AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
+                count: newTotalSteps,
+                date: new Date().toDateString(),
+              }));
+            } catch (e) {
+              // Silent fail - the useEffect will also save
+            }
           }
         });
       }
@@ -533,6 +550,9 @@ export const WalkingProvider = ({ children }) => {
       // When pedometer IS available, accelerometer is disabled to prevent double counting
       if (Platform.OS !== 'web' && !isPedometerAvailable) {
         console.log('📊 Using accelerometer as fallback (no pedometer)');
+        let lastAccelSaveTime = 0;
+        const ACCEL_SAVE_INTERVAL = 2000; // Save every 2 seconds max for accelerometer
+
         Accelerometer.setUpdateInterval(100); // 100ms = 10 updates/second
         accelerometerSubscription.current = Accelerometer.addListener(({ x, y, z }) => {
           const magnitude = Math.sqrt(x * x + y * y + z * z);
@@ -563,7 +583,21 @@ export const WalkingProvider = ({ children }) => {
 
             // Only increment if pedometer is NOT available
             setSessionSteps(prev => prev + 1);
-            setStepCount(prev => prev + 1);
+            setStepCount(prev => {
+              const newCount = prev + 1;
+              currentStepCountRef.current = newCount;
+
+              // Save immediately but throttle to avoid too many writes
+              if (now - lastAccelSaveTime > ACCEL_SAVE_INTERVAL) {
+                lastAccelSaveTime = now;
+                AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
+                  count: newCount,
+                  date: new Date().toDateString(),
+                })).catch(() => {});
+              }
+
+              return newCount;
+            });
           }
 
           // Reset peak flag when magnitude drops below threshold
@@ -606,6 +640,13 @@ export const WalkingProvider = ({ children }) => {
     setActiveCause(causeId);
     setIsWalking(true);
 
+    // Reset km/kcal/litres to 0 when starting fresh
+    // These will be updated from server response with correct values
+    // This prevents showing stale values from AsyncStorage that don't match current steps
+    setKilometre('0.00');
+    setKcal(0);
+    setLitres('0.00');
+
     // Reset restored session flags for fresh sessions
     isRestoredSession.current = false;
     restoredStepCount.current = 0;
@@ -644,20 +685,21 @@ export const WalkingProvider = ({ children }) => {
       await SocketService.connect();
 
       // Set up step acknowledgment handler
-      // Socket response is ONLY used to save to local DB for persistence
-      // It does NOT update the displayed step count (local counting is the source of truth)
+      // Socket response provides the server's calculated values
+      // Update display to match server values for consistency
       SocketService.onStepAck(async (data) => {
-        console.log('✅ Step acknowledged - saving to local DB:', JSON.stringify(data));
+        console.log('✅ Step acknowledged from server:', JSON.stringify(data));
 
-        // Save server's step count to local DB for persistence (so app knows where to start next time)
+        // Get server's step count (this is the authoritative daily total)
         const serverSteps = data.steps ?? data.total_steps ?? data.step_count ?? data.totalSteps;
         if (serverSteps !== undefined && serverSteps > 0) {
-          // Save to local storage only - don't update UI state
+          // Save to local storage
           await AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
             count: serverSteps,
             date: new Date().toDateString(),
           }));
-          // Also update todaySteps ref for next session start
+          // Update UI state to match server - ensures km/kcal/litres correspond to displayed steps
+          setStepCount(prev => Math.max(prev, serverSteps));
           setTodaySteps(prev => Math.max(prev, serverSteps));
         }
 
@@ -830,23 +872,28 @@ export const WalkingProvider = ({ children }) => {
   const setCurrentUser = useCallback(async (userId) => {
     if (userId === currentUserIdState) return; // Same user, no need to reload
 
-    console.log('📱 Switching to user:', userId);
+    // Check if this is a user SWITCH (from one user to another) vs initial load
+    const isUserSwitch = currentUserIdState !== null && currentUserIdState !== userId;
+
+    console.log('📱 Setting user:', userId, isUserSwitch ? '(switching users)' : '(initial load)');
     setCurrentUserIdState(userId);
     storageKeys.current = getStorageKeys(userId);
     currentUserId.current = userId;
 
-    // Reset state for new user
-    setStepCount(0);
-    setSessionSteps(0);
-    setTodaySteps(0);
-    setKilometre('0.00');
-    setKcal(0);
-    setLitres('0.00');
-    setIsWalking(false);
-    setActiveCause(null);
-
-    // Reset milestone tracking for new user
-    lastMilestoneReached.current = 0;
+    // Only reset state when SWITCHING between different users
+    // Don't reset on initial load - let the data loading populate the values
+    if (isUserSwitch) {
+      console.log('📱 User switch detected, resetting state');
+      setStepCount(0);
+      setSessionSteps(0);
+      setTodaySteps(0);
+      setKilometre('0.00');
+      setKcal(0);
+      setLitres('0.00');
+      setIsWalking(false);
+      setActiveCause(null);
+      lastMilestoneReached.current = 0;
+    }
 
     // Load data for this user
     try {
@@ -857,9 +904,15 @@ export const WalkingProvider = ({ children }) => {
       const lastDate = await AsyncStorage.getItem(keys.lastDate);
 
       if (lastDate && lastDate !== today) {
-        // New day - don't load old data
+        // New day - reset stats and don't load old data
+        console.log('📱 New day for user, resetting for new day');
+        setStepCount(0);
+        setSessionSteps(0);
+        setTodaySteps(0);
+        setKilometre('0.00');
+        setKcal(0);
+        setLitres('0.00');
         await AsyncStorage.setItem(keys.lastDate, today);
-        console.log('📱 New day for user, starting fresh');
         return;
       }
 

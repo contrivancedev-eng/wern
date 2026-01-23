@@ -35,6 +35,7 @@ export const AuthProvider = ({ children }) => {
   const [hasLoggedInBefore, setHasLoggedInBefore] = useState(false);
   const [litties, setLitties] = useState(0);
   const [dataRefreshTrigger, setDataRefreshTrigger] = useState(0);
+  const [walletAnimationTrigger, setWalletAnimationTrigger] = useState(0);
 
   useEffect(() => {
     checkAuthState();
@@ -199,6 +200,11 @@ export const AuthProvider = ({ children }) => {
     setDataRefreshTrigger(prev => prev + 1);
   };
 
+  // Trigger wallet bounce animation (e.g., when coins land from daily claim)
+  const triggerWalletAnimation = () => {
+    setWalletAnimationTrigger(prev => prev + 1);
+  };
+
   const value = {
     user,
     token,
@@ -207,6 +213,7 @@ export const AuthProvider = ({ children }) => {
     hasLoggedInBefore,
     litties,
     dataRefreshTrigger,
+    walletAnimationTrigger,
     login,
     signup,
     logout,
@@ -215,6 +222,7 @@ export const AuthProvider = ({ children }) => {
     refreshLitties,
     fetchUserDetails,
     triggerDataRefresh,
+    triggerWalletAnimation,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

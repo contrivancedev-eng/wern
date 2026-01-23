@@ -163,7 +163,7 @@ const AnimatedCoin = ({ delay, startX, startY, targetX, targetY, onComplete, sty
 const DailyCheckin = ({ onClaim }) => {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const { token, refreshLitties } = useAuth();
+  const { token, refreshLitties, triggerWalletAnimation } = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [showModal, setShowModal] = useState(false);
   const [showCoins, setShowCoins] = useState(false);
@@ -177,6 +177,7 @@ const DailyCheckin = ({ onClaim }) => {
   const [timeLeft, setTimeLeft] = useState('00:00:00');
   const [dailyList, setDailyList] = useState([]);
   const [claimResult, setClaimResult] = useState(null);
+  const [apiResponseCount, setApiResponseCount] = useState(0); // Tracks API responses to trigger timer
   const timerRef = useRef(null);
 
   // Fetch daily claim status
@@ -195,6 +196,8 @@ const DailyCheckin = ({ onClaim }) => {
         setCurrentDay(parseInt(data.data.current_day) || 1);
         setTimeLeft(data.data.time_left || '00:00:00');
         setDailyList(data.data.daily_list || []);
+        // Increment counter to trigger timer restart with new API data
+        setApiResponseCount(prev => prev + 1);
       }
     } catch (error) {
       console.log('Error fetching daily claim status:', error.message);
@@ -208,21 +211,42 @@ const DailyCheckin = ({ onClaim }) => {
     fetchClaimStatus();
   }, [fetchClaimStatus]);
 
-  // Countdown timer
+  // Store initial time from API in a ref (won't trigger re-renders)
+  const initialSecondsRef = useRef(0);
+
+  // Countdown timer - runs based on initial time from API
   useEffect(() => {
-    if (!timeLeft || timeLeft === '00:00:00') return;
+    // Clear any existing timer
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    // Parse initial time and store in ref
+    if (!timeLeft || timeLeft === '00:00:00') {
+      initialSecondsRef.current = 0;
+      return;
+    }
 
     const parseTime = (timeStr) => {
       const parts = timeStr.split(':').map(Number);
       return parts[0] * 3600 + parts[1] * 60 + parts[2];
     };
 
-    let seconds = parseTime(timeLeft);
+    // Only update initial seconds if this is a new value (not from interval)
+    const newSeconds = parseTime(timeLeft);
+    if (newSeconds > 0) {
+      initialSecondsRef.current = newSeconds;
+    }
+
+    let seconds = initialSecondsRef.current;
+    if (seconds <= 0) return;
 
     timerRef.current = setInterval(() => {
       seconds -= 1;
       if (seconds <= 0) {
         clearInterval(timerRef.current);
+        timerRef.current = null;
         setTimeLeft('00:00:00');
         // Refresh status when timer ends
         fetchClaimStatus();
@@ -238,9 +262,13 @@ const DailyCheckin = ({ onClaim }) => {
     }, 1000);
 
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     };
-  }, [todayClaimed]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiResponseCount]); // Trigger when API response is received
 
   // Build daily rewards from API data
   const dailyRewards = useMemo(() => {
@@ -288,6 +316,11 @@ const DailyCheckin = ({ onClaim }) => {
 
         // Refresh litties balance in navbar
         refreshLitties?.();
+
+        // Trigger wallet bounce animation when first coin lands (~900ms after animation starts)
+        setTimeout(() => {
+          triggerWalletAnimation?.();
+        }, 900);
 
         // Re-fetch claim status to get updated time_left
         setTimeout(() => {

@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Image, TextInput, Modal, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Icon, Toast } from '../../components';
 import { useTheme, useAuth } from '../../context';
 import { fonts } from '../../utils';
@@ -39,6 +40,11 @@ const ProfileScreen = () => {
   const [transactionsByDate, setTransactionsByDate] = useState({});
   const [selectedDayDetails, setSelectedDayDetails] = useState(null);
   const [showDayDetailsModal, setShowDayDetailsModal] = useState(false);
+  const [selectedDayHourlyData, setSelectedDayHourlyData] = useState(Array(24).fill(0));
+  const hourlyScrollRef = useRef(null);
+
+  // Historical goals state - maps date strings to goal values
+  const [historicalGoals, setHistoricalGoals] = useState({});
 
   const showToast = (message, type = 'error') => {
     setToast({ visible: true, message, type });
@@ -47,6 +53,49 @@ const ProfileScreen = () => {
   const hideToast = () => {
     setToast({ visible: false, message: '', type: 'error' });
   };
+
+  // Get today's date string for storage key
+  const getTodayDateString = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+
+  // Load historical goals from AsyncStorage
+  const loadHistoricalGoals = useCallback(async () => {
+    const userId = user?.id || user?.user_id;
+    if (!userId) return;
+
+    try {
+      const goalsKey = `historicalGoals_${userId}`;
+      const stored = await AsyncStorage.getItem(goalsKey);
+      if (stored) {
+        setHistoricalGoals(JSON.parse(stored));
+      }
+    } catch (error) {
+      console.log('Error loading historical goals:', error.message);
+    }
+  }, [user]);
+
+  // Save goal to AsyncStorage for a specific date
+  const saveGoalForDate = useCallback(async (goal, dateString = null) => {
+    const userId = user?.id || user?.user_id;
+    if (!userId) return;
+
+    try {
+      const goalsKey = `historicalGoals_${userId}`;
+      const stored = await AsyncStorage.getItem(goalsKey);
+      const goals = stored ? JSON.parse(stored) : {};
+
+      // Save goal for the specified date (or today if not specified)
+      const date = dateString || getTodayDateString();
+      goals[date] = parseInt(goal) || 8000;
+
+      await AsyncStorage.setItem(goalsKey, JSON.stringify(goals));
+      setHistoricalGoals(goals);
+    } catch (error) {
+      console.log('Error saving goal for date:', error.message);
+    }
+  }, [user]);
 
   // Fetch step transaction history
   const fetchTransactionHistory = useCallback(async () => {
@@ -97,9 +146,12 @@ const ProfileScreen = () => {
       if (data.status === true && data.data) {
         // Extract goal data
         if (data.data.goal) {
-          setDailyStepGoal(String(data.data.goal.daily_step_goal || '8000'));
+          const fetchedGoal = String(data.data.goal.daily_step_goal || '8000');
+          setDailyStepGoal(fetchedGoal);
           setActivityLevel(data.data.goal.activity_level || 'Intermediate');
           setWeeklyGoal(String(data.data.goal.weekly_goal || '5'));
+          // Save current goal to historical goals for today (so we track it even without explicit save)
+          saveGoalForDate(fetchedGoal);
         }
 
         // Extract monthly steps data
@@ -112,7 +164,7 @@ const ProfileScreen = () => {
     } finally {
       setIsLoadingProfile(false);
     }
-  }, [token]);
+  }, [token, saveGoalForDate]);
 
   // Save user goals to API
   const saveUserGoals = async () => {
@@ -138,6 +190,8 @@ const ProfileScreen = () => {
 
       if (data.status === true) {
         showToast('Goals saved successfully!', 'success');
+        // Save goal to AsyncStorage for today's date (for historical tracking)
+        await saveGoalForDate(dailyStepGoal);
         // Trigger data refresh so other screens (like WalkScreen) get updated goal
         triggerDataRefresh();
       } else {
@@ -210,9 +264,10 @@ const ProfileScreen = () => {
   useEffect(() => {
     fetchProfileData();
     fetchTransactionHistory();
+    loadHistoricalGoals();
     // Refresh user details from API to get fresh data (not from local storage)
     refreshUserDetails();
-  }, [fetchProfileData, fetchTransactionHistory]);
+  }, [fetchProfileData, fetchTransactionHistory, loadHistoricalGoals]);
 
   // Upload image to API
   const uploadUserImage = async (imageAsset) => {
@@ -343,6 +398,7 @@ const ProfileScreen = () => {
     const currentMonth = today.getMonth();
     const currentDay = today.getDate();
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const currentGoal = parseInt(dailyStepGoal) || 8000;
 
     const data = [];
     for (let day = 1; day <= daysInMonth; day++) {
@@ -350,22 +406,27 @@ const ProfileScreen = () => {
       const dateKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const steps = monthlySteps[dateKey] || 0;
 
+      // Use historical goal for that specific day, fallback to current goal
+      const goalSteps = historicalGoals[dateKey] || currentGoal;
+
       let status;
       if (day > currentDay) {
         status = 'upcoming';
       } else if (day === currentDay) {
-        // Current day - show as "current" (in progress), or "completed" if goal met
-        status = steps > 0 ? 'completed' : 'current';
-      } else if (steps > 0) {
+        // Current day - show as "completed" if goal met, otherwise "current" (in progress)
+        status = steps >= goalSteps ? 'completed' : 'current';
+      } else if (steps >= goalSteps) {
+        // Past day - completed only if daily goal was achieved
         status = 'completed';
       } else {
+        // Past day - missed if goal was not achieved (even if some steps were recorded)
         status = 'missed';
       }
 
-      data.push({ day, status, steps });
+      data.push({ day, status, steps, goalSteps });
     }
     return data;
-  }, [monthlySteps]);
+  }, [monthlySteps, dailyStepGoal, historicalGoals]);
 
   const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -433,6 +494,19 @@ const ProfileScreen = () => {
     const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`;
     const dayData = transactionsByDate[dateKey];
 
+    // Calculate hourly data for this day
+    const hourlySteps = Array(24).fill(0);
+    if (dayData?.transactions) {
+      dayData.transactions.forEach((transaction) => {
+        if (transaction.event_time) {
+          const eventDate = new Date(transaction.event_time);
+          const hour = eventDate.getHours();
+          hourlySteps[hour] += parseInt(transaction.steps) || 0;
+        }
+      });
+    }
+    setSelectedDayHourlyData(hourlySteps);
+
     setSelectedDayDetails({
       date: dateKey,
       day: day.day,
@@ -440,9 +514,19 @@ const ProfileScreen = () => {
       year: today.getFullYear(),
       status: day.status,
       steps: day.steps,
+      goalSteps: day.goalSteps,
       ...dayData,
     });
     setShowDayDetailsModal(true);
+
+    // Auto-scroll to hour with most steps after modal opens
+    setTimeout(() => {
+      const maxStepsHour = hourlySteps.indexOf(Math.max(...hourlySteps));
+      if (maxStepsHour >= 0 && hourlyScrollRef.current) {
+        const scrollPosition = Math.max(0, (maxStepsHour * 32) - 80);
+        hourlyScrollRef.current?.scrollTo({ x: scrollPosition, animated: true });
+      }
+    }, 300);
   };
 
   // Get cause name by ID
@@ -1010,6 +1094,9 @@ const ProfileScreen = () => {
                      selectedDayDetails?.status === 'current' ? 'In Progress' : 'Missed'}
                   </Text>
                 </View>
+                <Text style={styles.dayDetailsGoalText}>
+                  Goal: {selectedDayDetails?.goalSteps?.toLocaleString() || '8,000'} steps
+                </Text>
               </View>
               <TouchableOpacity
                 style={styles.dayDetailsCloseBtn}
@@ -1046,53 +1133,60 @@ const ProfileScreen = () => {
               </View>
             </View>
 
-            {/* Activity List */}
-            <Text style={styles.activityTitle}>Activity Log</Text>
-            <ScrollView style={styles.activityList} showsVerticalScrollIndicator={false}>
-              {selectedDayDetails?.transactions?.length > 0 ? (
-                selectedDayDetails.transactions.map((transaction, index) => (
-                  <View key={transaction.id || index} style={styles.activityItem}>
-                    <View style={styles.activityLeft}>
-                      <View style={[
-                        styles.activityIcon,
-                        { backgroundColor: transaction.category_id === '1' ? 'rgba(34, 197, 94, 0.2)' :
-                          transaction.category_id === '2' ? 'rgba(59, 130, 246, 0.2)' :
-                          transaction.category_id === '3' ? 'rgba(34, 197, 94, 0.2)' :
-                          transaction.category_id === '4' ? 'rgba(244, 114, 182, 0.2)' :
-                          'rgba(251, 191, 36, 0.2)' }
-                      ]}>
-                        <Icon
-                          name={transaction.category_id === '2' ? 'water' : 'leaf'}
-                          size={16}
-                          color={transaction.category_id === '1' ? '#22c55e' :
-                            transaction.category_id === '2' ? '#3b82f6' :
-                            transaction.category_id === '3' ? '#22c55e' :
-                            transaction.category_id === '4' ? '#f472b6' :
-                            '#fbbf24'}
-                        />
-                      </View>
-                      <View style={styles.activityInfo}>
-                        <Text style={styles.activityCause}>
-                          {getCauseName(transaction.category_id)}
-                        </Text>
-                        <Text style={styles.activityTime}>
-                          {formatTime(transaction.event_time)}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.activityRight}>
-                      <Text style={styles.activitySteps}>+{transaction.steps}</Text>
-                      <Text style={styles.activityKm}>{parseFloat(transaction.kilometre).toFixed(3)} km</Text>
+            {/* Hourly Activity Graph */}
+            <Text style={styles.activityTitle}>Hourly Activity</Text>
+            <View style={styles.hourlyGraphContainer}>
+              {selectedDayHourlyData.some(steps => steps > 0) ? (
+                <>
+                  <ScrollView
+                    ref={hourlyScrollRef}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.hourlyBarsScrollContent}
+                  >
+                    {selectedDayHourlyData.map((steps, hour) => {
+                      const maxSteps = Math.max(...selectedDayHourlyData, 100);
+                      const barHeight = maxSteps > 0 ? (steps / maxSteps) * 100 : 0;
+                      const hasSteps = steps > 0;
+
+                      return (
+                        <View key={hour} style={styles.hourlyBarColumn}>
+                          <Text style={styles.hourlyBarValue}>
+                            {steps > 0 ? steps : ''}
+                          </Text>
+                          <View style={styles.hourlyBarWrapper}>
+                            <LinearGradient
+                              colors={hasSteps ? ['#22c55e', '#16a34a'] : ['transparent', 'transparent']}
+                              style={[
+                                styles.hourlyBar,
+                                { height: Math.max(barHeight, steps > 0 ? 4 : 0) }
+                              ]}
+                            />
+                          </View>
+                          <Text style={styles.hourlyBarLabel}>
+                            {hour === 0 ? '12am' :
+                             hour === 12 ? '12pm' :
+                             hour < 12 ? `${hour}am` : `${hour - 12}pm`}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                  {/* Legend */}
+                  <View style={styles.hourlyLegend}>
+                    <View style={styles.hourlyLegendItem}>
+                      <View style={[styles.hourlyLegendDot, { backgroundColor: '#22c55e' }]} />
+                      <Text style={styles.hourlyLegendText}>Steps per hour</Text>
                     </View>
                   </View>
-                ))
+                </>
               ) : (
                 <View style={styles.noActivityContainer}>
-                  <Icon name="calendar-outline" size={48} color={colors.textMuted} />
+                  <Icon name="bar-chart-outline" size={48} color={colors.textMuted} />
                   <Text style={styles.noActivityText}>No activity recorded for this day</Text>
                 </View>
               )}
-            </ScrollView>
+            </View>
 
             {/* Close Button */}
             <TouchableOpacity
@@ -1685,6 +1779,11 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     color: colors.textLight,
     marginLeft: 8,
   },
+  dayDetailsGoalText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 4,
+  },
   dayDetailsCloseBtn: {
     width: 36,
     height: 36,
@@ -1788,6 +1887,61 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     color: colors.textMuted,
     marginTop: 12,
     textAlign: 'center',
+  },
+  // Hourly Graph styles
+  hourlyGraphContainer: {
+    marginBottom: 16,
+  },
+  hourlyBarsScrollContent: {
+    paddingHorizontal: 4,
+    paddingBottom: 8,
+  },
+  hourlyBarColumn: {
+    alignItems: 'center',
+    width: 28,
+    marginHorizontal: 2,
+  },
+  hourlyBarValue: {
+    fontSize: 8,
+    color: colors.textMuted,
+    height: 14,
+    textAlign: 'center',
+  },
+  hourlyBarWrapper: {
+    height: 100,
+    width: 16,
+    justifyContent: 'flex-end',
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  hourlyBar: {
+    width: '100%',
+    borderRadius: 4,
+  },
+  hourlyBarLabel: {
+    fontSize: 9,
+    color: colors.textMuted,
+    marginTop: 4,
+  },
+  hourlyLegend: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  hourlyLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  hourlyLegendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  hourlyLegendText: {
+    fontSize: 11,
+    color: colors.textMuted,
   },
   dayDetailsButton: {
     backgroundColor: '#f5c842',

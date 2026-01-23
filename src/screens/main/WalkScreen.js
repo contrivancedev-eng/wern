@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Svg, { Circle } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Icon } from '../../components';
 import CauseLottie from '../../components/CauseLottie';
@@ -117,43 +118,87 @@ const WalkScreen = () => {
     }
   }, [showHourlyGraph]);
 
-  // Fetch hourly transaction data for today
-  const fetchHourlyData = useCallback(async () => {
-    if (!token) return;
+  // Get today's date string for storage key
+  const getTodayDateString = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+
+  // Load hourly data from AsyncStorage
+  const loadHourlyData = useCallback(async () => {
+    const userId = user?.id || user?.user_id;
+    if (!userId) return;
 
     try {
-      const response = await fetch(`${API_URL}get-step-transection-history?token=${token}`);
-      const data = await response.json();
+      const todayKey = `hourlySteps_${userId}_${getTodayDateString()}`;
+      const stored = await AsyncStorage.getItem(todayKey);
 
-      if (data.status === true && data.data?.transactions) {
-        // Get today's date string
-        const today = new Date();
-        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
-        // Initialize hourly buckets (0-23 hours)
-        const hourlySteps = Array(24).fill(0);
-
-        // Filter today's transactions and group by hour
-        data.data.transactions.forEach((transaction) => {
-          if (transaction.is_date === todayStr && transaction.event_time) {
-            const eventDate = new Date(transaction.event_time);
-            const hour = eventDate.getHours();
-            hourlySteps[hour] += parseInt(transaction.steps) || 0;
-          }
-        });
-
-        setHourlyData(hourlySteps);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setHourlyData(parsed);
+      } else {
+        // No data for today, reset to zeros
+        setHourlyData(Array(24).fill(0));
       }
     } catch (error) {
-      console.log('Error fetching hourly data:', error.message);
+      console.log('Error loading hourly data:', error.message);
+      setHourlyData(Array(24).fill(0));
     }
-  }, [token]);
+  }, [user]);
 
-  // Fetch today's summary and hourly data on mount and when token changes
+  // Save hourly data to AsyncStorage
+  const saveHourlyData = useCallback(async (data) => {
+    const userId = user?.id || user?.user_id;
+    if (!userId) return;
+
+    try {
+      const todayKey = `hourlySteps_${userId}_${getTodayDateString()}`;
+      await AsyncStorage.setItem(todayKey, JSON.stringify(data));
+    } catch (error) {
+      console.log('Error saving hourly data:', error.message);
+    }
+  }, [user]);
+
+  // Track previous session steps to calculate delta
+  const prevSessionStepsRef = useRef(0);
+  const lastHourRef = useRef(new Date().getHours());
+
+  // Update hourly data when steps change during walking
+  useEffect(() => {
+    if (isWalking && sessionSteps > 0) {
+      const currentHour = new Date().getHours();
+      const stepsDelta = sessionSteps - prevSessionStepsRef.current;
+
+      if (stepsDelta > 0) {
+        setHourlyData(prev => {
+          const updated = [...prev];
+          // If hour changed during walking, add steps to current hour
+          if (currentHour !== lastHourRef.current) {
+            lastHourRef.current = currentHour;
+          }
+          updated[currentHour] += stepsDelta;
+          // Save to AsyncStorage
+          saveHourlyData(updated);
+          return updated;
+        });
+        prevSessionStepsRef.current = sessionSteps;
+      }
+    }
+  }, [isWalking, sessionSteps, saveHourlyData]);
+
+  // Reset tracking refs when walking starts
+  useEffect(() => {
+    if (isWalking) {
+      prevSessionStepsRef.current = 0;
+      lastHourRef.current = new Date().getHours();
+    }
+  }, [isWalking]);
+
+  // Fetch today's summary on mount and when token changes, load hourly data locally
   useEffect(() => {
     fetchTodaySummary();
-    fetchHourlyData();
-  }, [fetchTodaySummary, fetchHourlyData]);
+    loadHourlyData();
+  }, [fetchTodaySummary, loadHourlyData]);
 
   // Refetch data when dataRefreshTrigger changes (e.g., after saving goals in ProfileScreen)
   useEffect(() => {
@@ -173,22 +218,21 @@ const WalkScreen = () => {
   useFocusEffect(
     useCallback(() => {
       fetchTodaySummary();
-      fetchHourlyData();
-    }, [fetchTodaySummary, fetchHourlyData])
+      loadHourlyData();
+    }, [fetchTodaySummary, loadHourlyData])
   );
 
   // Refetch today's summary when walking stops to get latest server data
   const prevIsWalking = useRef(isWalking);
   useEffect(() => {
     if (prevIsWalking.current && !isWalking) {
-      // Walking just stopped - refetch today's summary and hourly data
+      // Walking just stopped - refetch today's summary
       setTimeout(() => {
         fetchTodaySummary();
-        fetchHourlyData();
       }, 1000); // Small delay to allow server to process final data
     }
     prevIsWalking.current = isWalking;
-  }, [isWalking, fetchTodaySummary, fetchHourlyData]);
+  }, [isWalking, fetchTodaySummary]);
 
   // Get first name for greeting
   const firstName = user?.full_name?.split(' ')[0] || 'User';
