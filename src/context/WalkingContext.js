@@ -46,10 +46,18 @@ export const WalkingProvider = ({ children }) => {
   const [goalSteps, setGoalSteps] = useState(DEFAULT_GOAL_STEPS);
   const [currentUserIdState, setCurrentUserIdState] = useState(null);
 
-  // Stats from socket response (not calculated locally)
-  const [kilometre, setKilometre] = useState('0.00');
-  const [kcal, setKcal] = useState(0);
+  // Stats - km and kcal calculated locally, litres from socket
   const [litres, setLitres] = useState('0.00');
+
+  // Calculate km and kcal locally based on step count
+  // Average stride length: 0.762 meters (2.5 feet)
+  // Average calories per step: 0.04 kcal
+  const METERS_PER_STEP = 0.762;
+  const KCAL_PER_STEP = 0.04;
+
+  // Derived values - calculated from stepCount
+  const kilometre = ((stepCount * METERS_PER_STEP) / 1000).toFixed(2);
+  const kcal = Math.round(stepCount * KCAL_PER_STEP);
 
   // Get storage keys for current user
   const storageKeys = useRef(getStorageKeys(null));
@@ -113,9 +121,7 @@ export const WalkingProvider = ({ children }) => {
         setSessionSteps(0);
         sessionStartSteps.current = 0;
 
-        // Reset daily stats
-        setKilometre('0.00');
-        setKcal(0);
+        // Reset litres (km/kcal are calculated from stepCount)
         setLitres('0.00');
 
         // Save the reset
@@ -124,11 +130,9 @@ export const WalkingProvider = ({ children }) => {
           date: new Date().toDateString(),
         }));
 
-        // Reset daily stats in storage
+        // Reset daily stats in storage (km/kcal calculated from stepCount)
         await AsyncStorage.setItem(keys.dailyStats, JSON.stringify({
           stepCount: 0,
-          kilometre: '0.00',
-          kcal: 0,
           litres: '0.00',
           date: today,
         }));
@@ -168,9 +172,7 @@ export const WalkingProvider = ({ children }) => {
         setTodaySteps(0);
         sessionStartSteps.current = 0;
 
-        // Reset daily stats
-        setKilometre('0.00');
-        setKcal(0);
+        // Reset litres (km/kcal are calculated from stepCount)
         setLitres('0.00');
 
         const today = getTodayDateString();
@@ -182,11 +184,9 @@ export const WalkingProvider = ({ children }) => {
         }));
         await AsyncStorage.setItem(LAST_DATE_KEY, today);
 
-        // Reset daily stats in storage
+        // Reset daily stats in storage (km/kcal calculated from stepCount)
         await AsyncStorage.setItem(storageKeys.current.dailyStats, JSON.stringify({
           stepCount: 0,
-          kilometre: '0.00',
-          kcal: 0,
           litres: '0.00',
           date: today,
         }));
@@ -319,14 +319,11 @@ export const WalkingProvider = ({ children }) => {
             setStepCount(prev => Math.max(prev, stats.stepCount));
             setTodaySteps(prev => Math.max(prev, stats.stepCount));
           }
-          setKilometre(stats.kilometre || '0.00');
-          setKcal(stats.kcal || 0);
+          // Only load litres from storage (km/kcal are calculated from stepCount)
           setLitres(stats.litres || '0.00');
         } else {
           // Different day - reset
           console.log('Daily stats from different day, resetting');
-          setKilometre('0.00');
-          setKcal(0);
           setLitres('0.00');
         }
       }
@@ -679,11 +676,8 @@ export const WalkingProvider = ({ children }) => {
     setActiveCause(causeId);
     setIsWalking(true);
 
-    // Reset km/kcal/litres to 0 when starting fresh
-    // These will be updated from server response with correct values
-    // This prevents showing stale values from AsyncStorage that don't match current steps
-    setKilometre('0.00');
-    setKcal(0);
+    // Reset litres to 0 when starting fresh (km/kcal are calculated from stepCount automatically)
+    // Litres will be updated from server response
     setLitres('0.00');
 
     // Reset restored session flags for fresh sessions
@@ -735,27 +729,16 @@ export const WalkingProvider = ({ children }) => {
           setGoalSteps(data.goal);
         }
 
-        // ONLY update km, kcal, litres from server - these are calculated by server
-        // Step count remains completely LOCAL and independent
-        const kmValue = data.kilometre ?? data.km ?? data.kilometers ?? data.distance;
-        if (kmValue !== undefined) {
-          setKilometre(kmValue);
-        }
-        const kcalValue = data.kcal ?? data.calories ?? data.cal;
-        if (kcalValue !== undefined) {
-          setKcal(kcalValue);
-        }
+        // ONLY update litres from server - km/kcal are calculated locally from stepCount
         const litresValue = data.litres ?? data.liters ?? data.water;
         if (litresValue !== undefined) {
           setLitres(litresValue);
         }
 
-        // Save stats to local DB - use LOCAL step count, not server's
+        // Save stats to local DB
         const localStepCount = currentStepCountRef.current;
         await AsyncStorage.setItem(storageKeys.current.dailyStats, JSON.stringify({
           stepCount: localStepCount,
-          kilometre: kmValue || kilometre,
-          kcal: kcalValue || kcal,
           litres: litresValue || litres,
           date: getTodayDateString(),
         }));
@@ -820,17 +803,15 @@ export const WalkingProvider = ({ children }) => {
       endTime: new Date().toISOString(),
     }));
 
-    // Save daily stats to local storage (persist steps, km, kcal, litres for today)
-    // Use ref for stepCount to get the most current value
+    // Save daily stats to local storage (persist steps and litres for today)
+    // km/kcal are calculated from stepCount, so no need to save them
     const finalStepCount = currentStepCountRef.current || stepCount;
     await AsyncStorage.setItem(storageKeys.current.dailyStats, JSON.stringify({
       stepCount: finalStepCount,
-      kilometre,
-      kcal,
       litres,
       date: getTodayDateString(),
     }));
-    console.log('Daily stats saved:', { stepCount: finalStepCount, kilometre, kcal, litres });
+    console.log('Daily stats saved:', { stepCount: finalStepCount, litres });
 
     // Stop socket send interval
     if (socketSendInterval.current) {
@@ -922,8 +903,6 @@ export const WalkingProvider = ({ children }) => {
       setStepCount(0);
       setSessionSteps(0);
       setTodaySteps(0);
-      setKilometre('0.00');
-      setKcal(0);
       setLitres('0.00');
       setIsWalking(false);
       setActiveCause(null);
@@ -944,8 +923,6 @@ export const WalkingProvider = ({ children }) => {
         setStepCount(0);
         setSessionSteps(0);
         setTodaySteps(0);
-        setKilometre('0.00');
-        setKcal(0);
         setLitres('0.00');
         await AsyncStorage.setItem(keys.lastDate, today);
         return;
@@ -974,8 +951,7 @@ export const WalkingProvider = ({ children }) => {
             setStepCount(prev => Math.max(prev, stats.stepCount));
             setTodaySteps(prev => Math.max(prev, stats.stepCount));
           }
-          setKilometre(stats.kilometre || '0.00');
-          setKcal(stats.kcal || 0);
+          // Only load litres (km/kcal are calculated from stepCount)
           setLitres(stats.litres || '0.00');
           console.log('📱 Loaded daily stats for user:', stats);
         }
