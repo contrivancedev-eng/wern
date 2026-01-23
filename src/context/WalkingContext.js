@@ -517,17 +517,27 @@ export const WalkingProvider = ({ children }) => {
               });
 
               setSessionSteps(prev => prev + incrementalSteps);
-              setStepCount(newTotalSteps);
+              // Use Math.max to ensure we NEVER go backwards
+              setStepCount(prev => {
+                const finalCount = Math.max(prev, newTotalSteps);
+                newTotalSteps = finalCount; // Update for saving below
+                return finalCount;
+              });
               lastPedometerSteps.current = result.steps;
             }
           } else {
             // Normal session - use absolute counting
             newTotalSteps = sessionStartSteps.current + result.steps;
-            console.log('📊 Pedometer update:', { sessionSteps: result.steps, total: newTotalSteps });
+            console.log('📊 Pedometer update:', { sessionSteps: result.steps, sessionStart: sessionStartSteps.current, total: newTotalSteps });
 
             // Always use pedometer values (more accurate than accelerometer)
             setSessionSteps(result.steps);
-            setStepCount(newTotalSteps);
+            // Use Math.max to ensure we NEVER go backwards - critical for preventing step loss
+            setStepCount(prev => {
+              const finalCount = Math.max(prev, newTotalSteps);
+              newTotalSteps = finalCount; // Update for saving below
+              return finalCount;
+            });
           }
 
           // CRITICAL: Save step count immediately to AsyncStorage
@@ -638,25 +648,33 @@ export const WalkingProvider = ({ children }) => {
 
     // CRITICAL: Ensure we have the correct step count from AsyncStorage
     // This prevents starting from 0 if the state hasn't been restored yet
-    let actualStepCount = stepCount;
+    // Use the MAXIMUM of: current state, AsyncStorage value, and ref value
+    let actualStepCount = Math.max(stepCount, currentStepCountRef.current);
     try {
       const savedStepCount = await AsyncStorage.getItem(storageKeys.current.stepCount);
       if (savedStepCount) {
         const parsed = JSON.parse(savedStepCount);
         const today = new Date().toDateString();
-        if (parsed.date === today && parsed.count > actualStepCount) {
-          actualStepCount = parsed.count;
-          // Update state to match
-          setStepCount(parsed.count);
-          setTodaySteps(parsed.count);
-          console.log('📱 Restored step count before walking:', parsed.count);
+        if (parsed.date === today) {
+          // Always use the maximum to ensure we never lose steps
+          actualStepCount = Math.max(actualStepCount, parsed.count);
         }
       }
     } catch (e) {
       console.log('Error reading step count before walking:', e);
     }
 
+    // Update state if we found a higher value
+    if (actualStepCount > stepCount) {
+      setStepCount(actualStepCount);
+      setTodaySteps(actualStepCount);
+      console.log('📱 Restored step count before walking:', actualStepCount);
+    }
+
+    // Set the session start to the actual count - this is the baseline for new steps
     sessionStartSteps.current = actualStepCount;
+    currentStepCountRef.current = actualStepCount;
+    console.log('📱 Starting walk with sessionStartSteps:', actualStepCount);
     setSessionSteps(0);
     setActiveCause(causeId);
     setIsWalking(true);
