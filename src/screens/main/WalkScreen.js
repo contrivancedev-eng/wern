@@ -159,20 +159,34 @@ const WalkScreen = () => {
     }
   }, [user]);
 
-  // Track previous session steps to calculate delta
-  const prevSessionStepsRef = useRef(0);
+  // Track previous step count to calculate delta (use stepCount, not sessionSteps)
+  const prevStepCountRef = useRef(0);
   const lastHourRef = useRef(new Date().getHours());
+  const hourlyInitialized = useRef(false);
 
-  // Update hourly data when steps change during walking
+  // Initialize prevStepCountRef when walking starts
   useEffect(() => {
-    if (isWalking && sessionSteps > 0) {
-      const currentHour = new Date().getHours();
-      const stepsDelta = sessionSteps - prevSessionStepsRef.current;
+    if (isWalking && !hourlyInitialized.current) {
+      // Set initial value to current stepCount so we only track NEW steps
+      prevStepCountRef.current = stepCount;
+      lastHourRef.current = new Date().getHours();
+      hourlyInitialized.current = true;
+    } else if (!isWalking) {
+      hourlyInitialized.current = false;
+    }
+  }, [isWalking, stepCount]);
 
-      if (stepsDelta > 0) {
+  // Update hourly data when stepCount changes during walking
+  useEffect(() => {
+    if (isWalking && hourlyInitialized.current && stepCount > prevStepCountRef.current) {
+      const currentHour = new Date().getHours();
+      const stepsDelta = stepCount - prevStepCountRef.current;
+
+      // Only add reasonable deltas (max 50 steps at a time to prevent jumps)
+      if (stepsDelta > 0 && stepsDelta <= 50) {
         setHourlyData(prev => {
           const updated = [...prev];
-          // If hour changed during walking, add steps to current hour
+          // Handle hour change
           if (currentHour !== lastHourRef.current) {
             lastHourRef.current = currentHour;
           }
@@ -181,18 +195,10 @@ const WalkScreen = () => {
           saveHourlyData(updated);
           return updated;
         });
-        prevSessionStepsRef.current = sessionSteps;
       }
+      prevStepCountRef.current = stepCount;
     }
-  }, [isWalking, sessionSteps, saveHourlyData]);
-
-  // Reset tracking refs when walking starts
-  useEffect(() => {
-    if (isWalking) {
-      prevSessionStepsRef.current = 0;
-      lastHourRef.current = new Date().getHours();
-    }
-  }, [isWalking]);
+  }, [isWalking, stepCount, saveHourlyData]);
 
   // Fetch today's summary on mount and when token changes, load hourly data locally
   useEffect(() => {

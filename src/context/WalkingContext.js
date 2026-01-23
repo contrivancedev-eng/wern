@@ -501,59 +501,68 @@ export const WalkingProvider = ({ children }) => {
   }, [isWalking, isPedometerAvailable, checkAndResetForNewDay, activeCause]);
 
   // Step counting when walking
-  // PEDOMETER is the PRIMARY source (accurate, works in background/locked)
-  // We use BOTH watchStepCount AND periodic getStepCountAsync for reliability
+  // Use getStepCountAsync as PRIMARY source (more reliable than watchStepCount)
+  // watchStepCount can drop subscription silently, so we poll every second
   const pedometerSyncInterval = useRef(null);
+  const lastWatchUpdate = useRef(Date.now());
 
   useEffect(() => {
     if (isWalking) {
-      // PEDOMETER: Primary step counting - accurate and works when phone is locked
+      // PEDOMETER: Primary step counting
       if (isPedometerAvailable) {
         console.log('📊 Starting pedometer for step counting');
 
-        // Method 1: Real-time watch (may sometimes miss updates)
-        pedometerSubscription.current = Pedometer.watchStepCount(async (result) => {
-          let newTotalSteps = 0;
+        // Method 1: Real-time watch (for immediate feedback, but can drop)
+        const startWatchSubscription = () => {
+          if (pedometerSubscription.current) {
+            pedometerSubscription.current.remove();
+          }
+          pedometerSubscription.current = Pedometer.watchStepCount(async (result) => {
+            lastWatchUpdate.current = Date.now(); // Track last update time
 
-          // Handle restored sessions differently - use incremental counting
-          if (isRestoredSession.current) {
-            const incrementalSteps = result.steps - lastPedometerSteps.current;
-            if (incrementalSteps > 0) {
-              newTotalSteps = restoredStepCount.current + result.steps;
-              setSessionSteps(prev => prev + incrementalSteps);
+            let newTotalSteps = 0;
+            if (isRestoredSession.current) {
+              const incrementalSteps = result.steps - lastPedometerSteps.current;
+              if (incrementalSteps > 0) {
+                newTotalSteps = restoredStepCount.current + result.steps;
+                setSessionSteps(prev => prev + incrementalSteps);
+                setStepCount(prev => {
+                  const finalCount = Math.max(prev, newTotalSteps);
+                  currentStepCountRef.current = finalCount;
+                  return finalCount;
+                });
+                lastPedometerSteps.current = result.steps;
+              }
+            } else {
+              newTotalSteps = sessionStartSteps.current + result.steps;
+              setSessionSteps(result.steps);
               setStepCount(prev => {
                 const finalCount = Math.max(prev, newTotalSteps);
                 currentStepCountRef.current = finalCount;
                 return finalCount;
               });
-              lastPedometerSteps.current = result.steps;
             }
-          } else {
-            newTotalSteps = sessionStartSteps.current + result.steps;
-            setSessionSteps(result.steps);
-            setStepCount(prev => {
-              const finalCount = Math.max(prev, newTotalSteps);
-              currentStepCountRef.current = finalCount;
-              return finalCount;
-            });
-          }
 
-          // Save to AsyncStorage
-          if (newTotalSteps > 0) {
-            AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
-              count: newTotalSteps,
-              date: new Date().toDateString(),
-            })).catch(() => {});
-          }
-        });
+            if (newTotalSteps > 0) {
+              AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
+                count: newTotalSteps,
+                date: new Date().toDateString(),
+              })).catch(() => {});
+            }
+          });
+        };
 
-        // Method 2: Periodic sync every 2 seconds as BACKUP (catches missed steps)
+        startWatchSubscription();
+
+        // Method 2: Poll every 1 second - this is the RELIABLE source
+        // Also restarts watch subscription if it seems stuck (no updates for 5 seconds)
         pedometerSyncInterval.current = setInterval(async () => {
           if (walkingStartTime.current) {
             try {
               const now = new Date();
               const result = await Pedometer.getStepCountAsync(walkingStartTime.current, now);
-              if (result && result.steps > 0) {
+
+              if (result && result.steps >= 0) {
                 let newTotalSteps = 0;
 
                 if (isRestoredSession.current) {
@@ -562,12 +571,14 @@ export const WalkingProvider = ({ children }) => {
                   newTotalSteps = sessionStartSteps.current + result.steps;
                 }
 
-                // Only update if this gives us MORE steps (backup sync)
+                // Always update session steps from poll (more reliable)
+                setSessionSteps(result.steps);
+
+                // Update step count if this gives us more steps
                 setStepCount(prev => {
                   if (newTotalSteps > prev) {
-                    console.log('📊 Pedometer sync caught missed steps:', newTotalSteps - prev);
+                    console.log('📊 Pedometer poll update:', { sessionSteps: result.steps, total: newTotalSteps });
                     currentStepCountRef.current = newTotalSteps;
-                    setSessionSteps(result.steps);
                     AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
                       count: newTotalSteps,
                       date: new Date().toDateString(),
@@ -577,11 +588,19 @@ export const WalkingProvider = ({ children }) => {
                   return prev;
                 });
               }
+
+              // Health check: restart watch subscription if stuck for over 5 seconds
+              const timeSinceLastWatch = Date.now() - lastWatchUpdate.current;
+              if (timeSinceLastWatch > 5000) {
+                console.log('📊 Watch subscription may be stuck, restarting...');
+                startWatchSubscription();
+                lastWatchUpdate.current = Date.now();
+              }
             } catch (e) {
-              console.log('Pedometer sync error:', e.message);
+              console.log('Pedometer poll error:', e.message);
             }
           }
-        }, 2000); // Sync every 2 seconds
+        }, 1000); // Poll every 1 second for reliable counting
       }
 
       // ACCELEROMETER: Only used as FALLBACK when pedometer is not available
