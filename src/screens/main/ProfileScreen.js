@@ -191,6 +191,20 @@ const ProfileScreen = () => {
   const saveUserGoals = async () => {
     if (!token) return;
 
+    // Validate Daily Step Goal (minimum 1000)
+    const stepGoalValue = parseInt(dailyStepGoal) || 0;
+    if (stepGoalValue < 1000) {
+      showToast('Daily Step Goal must be at least 1000 steps.');
+      return;
+    }
+
+    // Validate Target Active Days (min 1, max 31)
+    const activeDaysValue = parseInt(weeklyGoal) || 0;
+    if (activeDaysValue < 1 || activeDaysValue > 31) {
+      showToast('Target Active Days must be between 1 and 31.');
+      return;
+    }
+
     setIsSavingGoals(true);
     try {
       const response = await fetch(`${API_URL}save-user-goals`, {
@@ -822,16 +836,17 @@ const ProfileScreen = () => {
               {personalGoalExpanded && (
                 <View style={styles.accordionContent}>
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Daily Step Goal</Text>
+                    <Text style={styles.inputLabel}>Daily Step Goal <Text style={styles.inputHint}>(min: 1000)</Text></Text>
                     <TextInput
                       style={styles.input}
                       value={dailyStepGoal}
-                      onChangeText={setDailyStepGoal}
+                      onChangeText={(text) => setDailyStepGoal(text.replace(/[^0-9]/g, ''))}
                       placeholder="8000"
                       placeholderTextColor="rgba(255,255,255,0.4)"
                       keyboardType="numeric"
                       onFocus={() => scrollToInput(700)}
                       returnKeyType="done"
+                      maxLength={6}
                       editable={true}
                       selectTextOnFocus={true}
                       underlineColorAndroid="transparent"
@@ -854,11 +869,11 @@ const ProfileScreen = () => {
                   </View>
 
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Target Active Days</Text>
+                    <Text style={styles.inputLabel}>Target Active Days <Text style={styles.inputHint}>(1-31)</Text></Text>
                     <TextInput
                       style={styles.input}
                       value={weeklyGoal}
-                      onChangeText={setWeeklyGoal}
+                      onChangeText={(text) => setWeeklyGoal(text.replace(/[^0-9]/g, ''))}
                       placeholder="5"
                       placeholderTextColor="rgba(255,255,255,0.4)"
                       keyboardType="numeric"
@@ -909,16 +924,17 @@ const ProfileScreen = () => {
               {personalGoalExpanded && (
                 <View style={styles.accordionContent}>
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Daily Step Goal</Text>
+                    <Text style={styles.inputLabel}>Daily Step Goal <Text style={styles.inputHint}>(min: 1000)</Text></Text>
                     <TextInput
                       style={styles.input}
                       value={dailyStepGoal}
-                      onChangeText={setDailyStepGoal}
+                      onChangeText={(text) => setDailyStepGoal(text.replace(/[^0-9]/g, ''))}
                       placeholder="8000"
                       placeholderTextColor="rgba(255,255,255,0.4)"
                       keyboardType="numeric"
                       onFocus={() => scrollToInput(700)}
                       returnKeyType="done"
+                      maxLength={6}
                       editable={true}
                       selectTextOnFocus={true}
                       underlineColorAndroid="transparent"
@@ -941,11 +957,11 @@ const ProfileScreen = () => {
                   </View>
 
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Target Active Days</Text>
+                    <Text style={styles.inputLabel}>Target Active Days <Text style={styles.inputHint}>(1-31)</Text></Text>
                     <TextInput
                       style={styles.input}
                       value={weeklyGoal}
-                      onChangeText={setWeeklyGoal}
+                      onChangeText={(text) => setWeeklyGoal(text.replace(/[^0-9]/g, ''))}
                       placeholder="5"
                       placeholderTextColor="rgba(255,255,255,0.4)"
                       keyboardType="numeric"
@@ -1750,6 +1766,11 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     fontSize: 14,
     color: colors.textWhite,
     marginBottom: 8,
+  },
+  inputHint: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '400',
   },
   input: {
     backgroundColor: 'rgba(255,255,255,0.1)',
