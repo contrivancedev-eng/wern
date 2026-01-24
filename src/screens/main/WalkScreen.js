@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { StyleSheet, View, Text, ScrollView, Image, TouchableOpacity, Modal, Dimensions, Platform, Animated } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Image, TouchableOpacity, Modal, Dimensions, Platform, Animated, AppState } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Svg, { Circle } from 'react-native-svg';
@@ -227,6 +227,22 @@ const WalkScreen = () => {
       loadHourlyData();
     }, [fetchTodaySummary, loadHourlyData])
   );
+
+  // Reload hourly data when app comes to foreground from background
+  const appState = useRef(AppState.currentState);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('📱 WalkScreen: App came to foreground, reloading hourly data');
+        loadHourlyData();
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [loadHourlyData]);
 
   // Refetch today's summary when walking stops to get latest server data
   const prevIsWalking = useRef(isWalking);

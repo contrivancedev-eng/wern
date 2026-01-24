@@ -9,6 +9,21 @@ import { fonts } from '../../utils';
 
 const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
 
+// Format large numbers (1000 -> 1k, 10000 -> 10k, etc.)
+const formatNumber = (num) => {
+  if (num === null || num === undefined) return '0';
+  const n = Number(num);
+  if (isNaN(n)) return '0';
+
+  if (n >= 1000000) {
+    return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'm';
+  }
+  if (n >= 1000) {
+    return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  }
+  return Math.round(n).toString();
+};
+
 // Filter categories for dropdown
 const filterCategories = [
   { id: 'all', name: 'All', icon: 'star', color: '#f59e0b', categoryId: null },
@@ -24,6 +39,7 @@ const DigitalVaultScreen = () => {
   const [transactions, setTransactions] = useState([]);
   const [allTransactions, setAllTransactions] = useState([]);
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false); // Track if initial load is done
   const [isTransactionsExpanded, setIsTransactionsExpanded] = useState(false);
   const MAX_VISIBLE_TRANSACTIONS = 5;
   const [balanceCard, setBalanceCard] = useState({ available_balance: 0, total_km: 0, total_calories: 0, total_steps: 0 });
@@ -46,10 +62,15 @@ const DigitalVaultScreen = () => {
   };
 
   // Fetch digital vault data from consolidated API
-  const fetchDigitalVaultData = useCallback(async () => {
+  // showLoader: only show loading indicator on first load, not on refresh
+  const fetchDigitalVaultData = useCallback(async (showLoader = false) => {
     if (!token) return;
 
-    setIsLoadingTransactions(true);
+    // Only show loader on initial load when we have no data
+    if (showLoader && !hasLoadedOnce) {
+      setIsLoadingTransactions(true);
+    }
+
     try {
       const response = await fetch(`${API_URL}get-digital-vault-data?token=${token}`);
       const data = await response.json();
@@ -71,6 +92,7 @@ const DigitalVaultScreen = () => {
         setAllTransactions(processedTransactions);
         setTransactions(processedTransactions);
         setSelectedCategory(filterCategories[0]); // Reset to 'All' category
+        setHasLoadedOnce(true); // Mark as loaded
 
         // Refresh litties to update TopNavbar
         refreshLitties();
@@ -80,25 +102,25 @@ const DigitalVaultScreen = () => {
     } finally {
       setIsLoadingTransactions(false);
     }
-  }, [token, refreshLitties]);
+  }, [token, refreshLitties, hasLoadedOnce]);
 
-  // Fetch data on mount
+  // Fetch data on mount - show loader only on first load
   useEffect(() => {
-    fetchDigitalVaultData();
-  }, [fetchDigitalVaultData]);
+    fetchDigitalVaultData(true); // Show loader on initial mount
+  }, []);
 
-  // Refetch data when dataRefreshTrigger changes
+  // Refetch data when dataRefreshTrigger changes - silent refresh (no loader)
   useEffect(() => {
     if (dataRefreshTrigger > 0) {
-      fetchDigitalVaultData();
+      fetchDigitalVaultData(false); // Silent refresh
     }
-  }, [dataRefreshTrigger, fetchDigitalVaultData]);
+  }, [dataRefreshTrigger]);
 
-  // Refetch data when screen comes into focus
+  // Refetch data when screen comes into focus - silent refresh (no loader)
   useFocusEffect(
     useCallback(() => {
-      fetchDigitalVaultData();
-    }, [fetchDigitalVaultData])
+      fetchDigitalVaultData(false); // Silent refresh
+    }, [])
   );
 
   const handleCategorySelect = (category) => {
@@ -160,15 +182,15 @@ const DigitalVaultScreen = () => {
               </View>
               <View style={styles.statsContainer}>
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{balanceCard.total_km || 0}</Text>
+                  <Text style={styles.statValue}>{formatNumber(balanceCard.total_km)}</Text>
                   <Text style={styles.statLabel}>Km</Text>
                 </View>
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{Math.round(balanceCard.total_calories || 0)}</Text>
+                  <Text style={styles.statValue}>{formatNumber(balanceCard.total_calories)}</Text>
                   <Text style={styles.statLabel}>Calories</Text>
                 </View>
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{balanceCard.total_steps || 0}</Text>
+                  <Text style={styles.statValue}>{formatNumber(balanceCard.total_steps)}</Text>
                   <Text style={styles.statLabel}>Steps</Text>
                 </View>
               </View>

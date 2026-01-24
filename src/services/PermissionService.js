@@ -1,8 +1,12 @@
 // Permission Service - Request all permissions upfront
-import { Platform, Alert, Linking } from 'react-native';
+import { Platform, Alert, Linking, NativeModules } from 'react-native';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { Pedometer } from 'expo-sensors';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const BATTERY_OPTIMIZATION_KEY = '@wern_battery_optimization_requested';
 
 // Request all permissions needed for the app
 export const requestAllPermissions = async () => {
@@ -103,8 +107,74 @@ export const showPermissionAlert = (missingPermission) => {
   );
 };
 
+// Check if battery optimization has been requested before
+export const hasBatteryOptimizationBeenRequested = async () => {
+  try {
+    const value = await AsyncStorage.getItem(BATTERY_OPTIMIZATION_KEY);
+    return value === 'true';
+  } catch {
+    return false;
+  }
+};
+
+// Mark battery optimization as requested
+export const markBatteryOptimizationRequested = async () => {
+  try {
+    await AsyncStorage.setItem(BATTERY_OPTIMIZATION_KEY, 'true');
+  } catch (e) {}
+};
+
+// Request battery optimization exemption (Android only)
+export const requestBatteryOptimization = async () => {
+  if (Platform.OS !== 'android') return true;
+
+  try {
+    // Open battery optimization settings for the app
+    await IntentLauncher.startActivityAsync(
+      IntentLauncher.ActivityAction.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+      {
+        data: 'package:com.wern.app',
+      }
+    );
+    await markBatteryOptimizationRequested();
+    return true;
+  } catch (error) {
+    console.log('Battery optimization request error:', error.message);
+    // Fallback: open general battery settings
+    try {
+      await IntentLauncher.startActivityAsync(
+        IntentLauncher.ActivityAction.IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+      );
+      await markBatteryOptimizationRequested();
+      return true;
+    } catch (e) {
+      // Final fallback: open app settings
+      Linking.openSettings();
+      return false;
+    }
+  }
+};
+
+// Open battery optimization settings directly
+export const openBatterySettings = async () => {
+  if (Platform.OS !== 'android') return;
+
+  try {
+    await IntentLauncher.startActivityAsync(
+      IntentLauncher.ActivityAction.IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+    );
+  } catch (error) {
+    // Fallback to app settings
+    Linking.openSettings();
+  }
+};
+
 export default {
   requestAllPermissions,
   checkAllPermissions,
   showPermissionAlert,
+  hasBatteryOptimizationBeenRequested,
+  markBatteryOptimizationRequested,
+  requestBatteryOptimization,
+  openBatterySettings,
 };

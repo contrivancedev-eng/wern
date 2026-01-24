@@ -1,56 +1,157 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Platform, Image, Modal, Switch, Animated } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Platform, Image, Modal, Switch, Animated, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from './Icon';
 import Logo from './Logo';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 
+// Sparkle component for shine effect
+const Sparkle = ({ delay, angle, distance }) => {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0)).current;
+  const translateX = Math.cos(angle) * distance;
+  const translateY = Math.sin(angle) * distance;
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.delay(delay),
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scale, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scale, {
+          toValue: 0.3,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View
+      style={{
+        position: 'absolute',
+        width: 8,
+        height: 8,
+        opacity,
+        transform: [
+          { translateX },
+          { translateY },
+          { scale },
+        ],
+      }}
+    >
+      <View style={{
+        width: 8,
+        height: 8,
+        backgroundColor: '#FFD700',
+        borderRadius: 4,
+        shadowColor: '#FFD700',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 1,
+        shadowRadius: 4,
+      }} />
+    </Animated.View>
+  );
+};
+
 const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress }) => {
   const insets = useSafeAreaInsets();
   const [showMenu, setShowMenu] = useState(false);
+  const [showSparkles, setShowSparkles] = useState(false);
   const { colors, isDarkMode, toggleTheme } = useTheme();
   const { user, litties, walletAnimationTrigger } = useAuth();
 
-  // Wallet bounce animation
+  // Wallet animations
   const walletScale = useRef(new Animated.Value(1)).current;
   const walletGlow = useRef(new Animated.Value(0)).current;
+  const shineRotate = useRef(new Animated.Value(0)).current;
+  const shineOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (walletAnimationTrigger > 0) {
-      // Play bounce animation when coins land
-      Animated.sequence([
-        // Quick scale up with glow
-        Animated.parallel([
+      // Show sparkles
+      setShowSparkles(true);
+      setTimeout(() => setShowSparkles(false), 800);
+
+      // Play shine + bounce animation when coins land
+      Animated.parallel([
+        // Bounce
+        Animated.sequence([
           Animated.spring(walletScale, {
-            toValue: 1.25,
+            toValue: 1.3,
             friction: 3,
             tension: 200,
             useNativeDriver: true,
           }),
-          Animated.timing(walletGlow, {
-            toValue: 1,
-            duration: 150,
-            useNativeDriver: true,
-          }),
-        ]),
-        // Bounce back down
-        Animated.parallel([
           Animated.spring(walletScale, {
             toValue: 1,
             friction: 4,
             tension: 100,
             useNativeDriver: true,
           }),
+        ]),
+        // Glow pulse
+        Animated.sequence([
+          Animated.timing(walletGlow, {
+            toValue: 1,
+            duration: 150,
+            useNativeDriver: true,
+          }),
           Animated.timing(walletGlow, {
             toValue: 0,
-            duration: 300,
+            duration: 500,
             useNativeDriver: true,
           }),
         ]),
-      ]).start();
+        // Shine rotation
+        Animated.sequence([
+          Animated.timing(shineOpacity, {
+            toValue: 1,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(shineRotate, {
+            toValue: 1,
+            duration: 600,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(shineOpacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start(() => {
+        // Reset shine rotation for next trigger
+        shineRotate.setValue(0);
+      });
     }
   }, [walletAnimationTrigger]);
+
+  // Generate sparkle positions (8 sparkles in a circle)
+  const sparkleData = Array.from({ length: 8 }, (_, i) => ({
+    angle: (i * Math.PI * 2) / 8,
+    distance: 28 + Math.random() * 10,
+    delay: i * 50,
+  }));
 
   const userImage = user?.user_image;
 
@@ -78,21 +179,81 @@ const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress }) =
               style={[styles.littiesContainer, { backgroundColor: colors.cardBackground }]}
               onPress={onLittiesPress}
             >
+              {/* Glow effect */}
               <Animated.View
                 style={{
                   opacity: walletGlow.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [0, 0.5],
+                    outputRange: [0, 0.6],
                   }),
                   position: 'absolute',
-                  top: -4,
-                  left: -4,
-                  right: -4,
-                  bottom: -4,
-                  borderRadius: 24,
+                  top: -6,
+                  left: -6,
+                  right: -6,
+                  bottom: -6,
+                  borderRadius: 26,
                   backgroundColor: '#FFD700',
+                  shadowColor: '#FFD700',
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 1,
+                  shadowRadius: 12,
                 }}
               />
+
+              {/* Shine rays */}
+              <Animated.View
+                style={{
+                  position: 'absolute',
+                  top: -20,
+                  left: -20,
+                  right: -20,
+                  bottom: -20,
+                  opacity: shineOpacity,
+                  transform: [{
+                    rotate: shineRotate.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0deg', '180deg'],
+                    }),
+                  }],
+                }}
+              >
+                {[0, 45, 90, 135].map((rotation) => (
+                  <View
+                    key={rotation}
+                    style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      width: 40,
+                      height: 2,
+                      marginLeft: -20,
+                      marginTop: -1,
+                      backgroundColor: '#FFD700',
+                      borderRadius: 1,
+                      transform: [{ rotate: `${rotation}deg` }],
+                      shadowColor: '#FFD700',
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 1,
+                      shadowRadius: 4,
+                    }}
+                  />
+                ))}
+              </Animated.View>
+
+              {/* Sparkles */}
+              {showSparkles && (
+                <View style={{ position: 'absolute', top: '50%', left: '50%' }}>
+                  {sparkleData.map((sparkle, index) => (
+                    <Sparkle
+                      key={index}
+                      angle={sparkle.angle}
+                      distance={sparkle.distance}
+                      delay={sparkle.delay}
+                    />
+                  ))}
+                </View>
+              )}
+
               <Icon name="wallet" size={18} color={colors.accent} />
               <Text style={[styles.littiesText, { color: colors.textWhite }]}>{litties} Litties</Text>
             </TouchableOpacity>

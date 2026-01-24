@@ -12,6 +12,21 @@ import { fonts } from '../../utils';
 const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
 const activityLevels = ['Beginner', 'Intermediate', 'Advanced'];
 
+// Format large numbers (1000 -> 1k, 10000 -> 10k, etc.)
+const formatNumber = (num) => {
+  if (num === null || num === undefined) return '0';
+  const n = Number(num);
+  if (isNaN(n)) return '0';
+
+  if (n >= 1000000) {
+    return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'm';
+  }
+  if (n >= 1000) {
+    return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  }
+  return Math.round(n).toString();
+};
+
 const ProfileScreen = () => {
   const { colors, isDarkMode } = useTheme();
   const { user, token, refreshUserDetails, triggerDataRefresh } = useAuth();
@@ -42,9 +57,17 @@ const ProfileScreen = () => {
   const [showDayDetailsModal, setShowDayDetailsModal] = useState(false);
   const [selectedDayHourlyData, setSelectedDayHourlyData] = useState(Array(24).fill(0));
   const hourlyScrollRef = useRef(null);
+  const mainScrollRef = useRef(null);
 
   // Historical goals state - maps date strings to goal values
   const [historicalGoals, setHistoricalGoals] = useState({});
+
+  // Scroll to input when focused
+  const scrollToInput = (yOffset) => {
+    if (mainScrollRef.current) {
+      mainScrollRef.current.scrollTo({ y: yOffset, animated: true });
+    }
+  };
 
   const showToast = (message, type = 'error') => {
     setToast({ visible: true, message, type });
@@ -150,8 +173,6 @@ const ProfileScreen = () => {
           setDailyStepGoal(fetchedGoal);
           setActivityLevel(data.data.goal.activity_level || 'Intermediate');
           setWeeklyGoal(String(data.data.goal.weekly_goal || '5'));
-          // Save current goal to historical goals for today (so we track it even without explicit save)
-          saveGoalForDate(fetchedGoal);
         }
 
         // Extract monthly steps data
@@ -164,7 +185,7 @@ const ProfileScreen = () => {
     } finally {
       setIsLoadingProfile(false);
     }
-  }, [token, saveGoalForDate]);
+  }, [token]);
 
   // Save user goals to API
   const saveUserGoals = async () => {
@@ -262,12 +283,15 @@ const ProfileScreen = () => {
 
   // Fetch fresh profile data and user details on mount
   useEffect(() => {
-    fetchProfileData();
-    fetchTransactionHistory();
-    loadHistoricalGoals();
-    // Refresh user details from API to get fresh data (not from local storage)
-    refreshUserDetails();
-  }, [fetchProfileData, fetchTransactionHistory, loadHistoricalGoals]);
+    if (token) {
+      fetchProfileData();
+      fetchTransactionHistory();
+      loadHistoricalGoals();
+      // Refresh user details from API to get fresh data (not from local storage)
+      refreshUserDetails();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   // Upload image to API
   const uploadUserImage = async (imageAsset) => {
@@ -585,14 +609,16 @@ const ProfileScreen = () => {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 80}
     >
       <ScrollView
+        ref={mainScrollRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         {/* Avatar */}
         <View style={styles.avatarContainer}>
@@ -688,7 +714,7 @@ const ProfileScreen = () => {
                 <View style={styles.totalItem}>
                   <Icon name="footsteps" size={18} color="#22c55e" />
                   <Text style={styles.totalValue}>
-                    {transactionHistory.totals.total_steps?.toLocaleString() || 0}
+                    {formatNumber(transactionHistory.totals.total_steps)}
                   </Text>
                   <Text style={styles.totalLabel}>Total Steps</Text>
                 </View>
@@ -704,7 +730,7 @@ const ProfileScreen = () => {
                 <View style={styles.totalItem}>
                   <Icon name="flame" size={18} color="#f97316" />
                   <Text style={styles.totalValue}>
-                    {transactionHistory.totals.total_kcal?.toFixed(0) || 0}
+                    {formatNumber(transactionHistory.totals.total_kcal)}
                   </Text>
                   <Text style={styles.totalLabel}>Total Kcal</Text>
                 </View>
@@ -772,154 +798,342 @@ const ProfileScreen = () => {
 
         {/* Personal Goal Accordion */}
         <View style={styles.accordionCard}>
-          <BlurView intensity={15} tint="dark" style={styles.accordionBlur}>
-            <TouchableOpacity
-              style={styles.accordionHeader}
-              onPress={() => setPersonalGoalExpanded(!personalGoalExpanded)}
-            >
-              <View style={styles.accordionHeaderLeft}>
-                <Icon
-                  name="navigate"
-                  size={24}
-                  color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
-                />
-                <Text style={styles.accordionTitle}>Personal Goal</Text>
-              </View>
-              <Icon
-                name={personalGoalExpanded ? 'chevron-down' : 'arrow-forward'}
-                size={20}
-                color={isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted}
-              />
-            </TouchableOpacity>
-
-            {personalGoalExpanded && (
-              <View style={styles.accordionContent}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Daily Step Goal</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={dailyStepGoal}
-                    onChangeText={setDailyStepGoal}
-                    placeholderTextColor="rgba(255,255,255,0.4)"
-                    keyboardType="numeric"
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={15} tint="dark" style={styles.accordionBlur}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => setPersonalGoalExpanded(!personalGoalExpanded)}
+              >
+                <View style={styles.accordionHeaderLeft}>
+                  <Icon
+                    name="navigate"
+                    size={24}
+                    color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
                   />
+                  <Text style={styles.accordionTitle}>Personal Goal</Text>
                 </View>
+                <Icon
+                  name={personalGoalExpanded ? 'chevron-down' : 'arrow-forward'}
+                  size={20}
+                  color={isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted}
+                />
+              </TouchableOpacity>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Activity Level</Text>
-                  <TouchableOpacity
-                    style={styles.dropdownButton}
-                    onPress={() => setShowActivityDropdown(true)}
-                  >
-                    <Text style={styles.dropdownButtonText}>{activityLevel}</Text>
-                    <Icon
-                      name="chevron-down"
-                      size={20}
-                      color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
+              {personalGoalExpanded && (
+                <View style={styles.accordionContent}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Daily Step Goal</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={dailyStepGoal}
+                      onChangeText={setDailyStepGoal}
+                      placeholder="8000"
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      keyboardType="numeric"
+                      onFocus={() => scrollToInput(700)}
+                      returnKeyType="done"
+                      editable={true}
+                      selectTextOnFocus={true}
+                      underlineColorAndroid="transparent"
                     />
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Activity Level</Text>
+                    <TouchableOpacity
+                      style={styles.dropdownButton}
+                      onPress={() => setShowActivityDropdown(true)}
+                    >
+                      <Text style={styles.dropdownButtonText}>{activityLevel}</Text>
+                      <Icon
+                        name="chevron-down"
+                        size={20}
+                        color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Target Active Days</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={weeklyGoal}
+                      onChangeText={setWeeklyGoal}
+                      placeholder="5"
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      keyboardType="numeric"
+                      onFocus={() => scrollToInput(800)}
+                      returnKeyType="done"
+                      maxLength={2}
+                      editable={true}
+                      selectTextOnFocus={true}
+                      underlineColorAndroid="transparent"
+                    />
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.saveButton, isSavingGoals && styles.saveButtonDisabled]}
+                    onPress={saveUserGoals}
+                    disabled={isSavingGoals}
+                  >
+                    {isSavingGoals ? (
+                      <ActivityIndicator size="small" color="#1a1a1a" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Save Goals</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Target Active Days</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={weeklyGoal}
-                    onChangeText={setWeeklyGoal}
-                    placeholderTextColor="rgba(255,255,255,0.4)"
-                    keyboardType="numeric"
+              )}
+            </BlurView>
+          ) : (
+            <View style={styles.accordionBlurAndroid}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => setPersonalGoalExpanded(!personalGoalExpanded)}
+              >
+                <View style={styles.accordionHeaderLeft}>
+                  <Icon
+                    name="navigate"
+                    size={24}
+                    color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
                   />
+                  <Text style={styles.accordionTitle}>Personal Goal</Text>
                 </View>
+                <Icon
+                  name={personalGoalExpanded ? 'chevron-down' : 'arrow-forward'}
+                  size={20}
+                  color={isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted}
+                />
+              </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.saveButton, isSavingGoals && styles.saveButtonDisabled]}
-                  onPress={saveUserGoals}
-                  disabled={isSavingGoals}
-                >
-                  {isSavingGoals ? (
-                    <ActivityIndicator size="small" color="#1a1a1a" />
-                  ) : (
-                    <Text style={styles.saveButtonText}>Save Goals</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            )}
-          </BlurView>
+              {personalGoalExpanded && (
+                <View style={styles.accordionContent}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Daily Step Goal</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={dailyStepGoal}
+                      onChangeText={setDailyStepGoal}
+                      placeholder="8000"
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      keyboardType="numeric"
+                      onFocus={() => scrollToInput(700)}
+                      returnKeyType="done"
+                      editable={true}
+                      selectTextOnFocus={true}
+                      underlineColorAndroid="transparent"
+                    />
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Activity Level</Text>
+                    <TouchableOpacity
+                      style={styles.dropdownButton}
+                      onPress={() => setShowActivityDropdown(true)}
+                    >
+                      <Text style={styles.dropdownButtonText}>{activityLevel}</Text>
+                      <Icon
+                        name="chevron-down"
+                        size={20}
+                        color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Target Active Days</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={weeklyGoal}
+                      onChangeText={setWeeklyGoal}
+                      placeholder="5"
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      keyboardType="numeric"
+                      onFocus={() => scrollToInput(800)}
+                      returnKeyType="done"
+                      maxLength={2}
+                      editable={true}
+                      selectTextOnFocus={true}
+                      underlineColorAndroid="transparent"
+                    />
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.saveButton, isSavingGoals && styles.saveButtonDisabled]}
+                    onPress={saveUserGoals}
+                    disabled={isSavingGoals}
+                  >
+                    {isSavingGoals ? (
+                      <ActivityIndicator size="small" color="#1a1a1a" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Save Goals</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
         {/* Account Settings Accordion */}
         <View style={styles.accordionCard}>
-          <BlurView intensity={15} tint="dark" style={styles.accordionBlur}>
-            <TouchableOpacity
-              style={styles.accordionHeader}
-              onPress={() => setAccountSettingsExpanded(!accountSettingsExpanded)}
-            >
-              <View style={styles.accordionHeaderLeft}>
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={15} tint="dark" style={styles.accordionBlur}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => setAccountSettingsExpanded(!accountSettingsExpanded)}
+              >
+                <View style={styles.accordionHeaderLeft}>
+                  <Icon
+                    name="settings"
+                    size={24}
+                    color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
+                  />
+                  <Text style={styles.accordionTitle}>Account Settings</Text>
+                </View>
                 <Icon
-                  name="settings"
-                  size={24}
-                  color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
+                  name={accountSettingsExpanded ? 'chevron-down' : 'arrow-forward'}
+                  size={20}
+                  color={isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted}
                 />
-                <Text style={styles.accordionTitle}>Account Settings</Text>
-              </View>
-              <Icon
-                name={accountSettingsExpanded ? 'chevron-down' : 'arrow-forward'}
-                size={20}
-                color={isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted}
-              />
-            </TouchableOpacity>
+              </TouchableOpacity>
 
-            {accountSettingsExpanded && (
-              <View style={styles.accordionContent}>
-                <Text style={styles.sectionLabel}>Change Password</Text>
+              {accountSettingsExpanded && (
+                <View style={styles.accordionContent}>
+                  <Text style={styles.sectionLabel}>Change Password</Text>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Old Password</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={oldPassword}
-                    onChangeText={setOldPassword}
-                    placeholderTextColor="rgba(255,255,255,0.4)"
-                    secureTextEntry
-                  />
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Old Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={oldPassword}
+                      onChangeText={setOldPassword}
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      secureTextEntry
+                      onFocus={() => scrollToInput(900)}
+                      returnKeyType="next"
+                    />
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>New Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      secureTextEntry
+                      onFocus={() => scrollToInput(1000)}
+                      returnKeyType="next"
+                    />
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Confirm Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      secureTextEntry
+                      onFocus={() => scrollToInput(1100)}
+                      returnKeyType="done"
+                    />
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.saveButton, isChangingPassword && styles.saveButtonDisabled]}
+                    onPress={handleChangePassword}
+                    disabled={isChangingPassword}
+                  >
+                    {isChangingPassword ? (
+                      <ActivityIndicator size="small" color="#1a1a1a" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Change Password</Text>
+                    )}
+                  </TouchableOpacity>
                 </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>New Password</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                    placeholderTextColor="rgba(255,255,255,0.4)"
-                    secureTextEntry
+              )}
+            </BlurView>
+          ) : (
+            <View style={styles.accordionBlurAndroid}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => setAccountSettingsExpanded(!accountSettingsExpanded)}
+              >
+                <View style={styles.accordionHeaderLeft}>
+                  <Icon
+                    name="settings"
+                    size={24}
+                    color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
                   />
+                  <Text style={styles.accordionTitle}>Account Settings</Text>
                 </View>
+                <Icon
+                  name={accountSettingsExpanded ? 'chevron-down' : 'arrow-forward'}
+                  size={20}
+                  color={isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted}
+                />
+              </TouchableOpacity>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Confirm Password</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    placeholderTextColor="rgba(255,255,255,0.4)"
-                    secureTextEntry
-                  />
+              {accountSettingsExpanded && (
+                <View style={styles.accordionContent}>
+                  <Text style={styles.sectionLabel}>Change Password</Text>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Old Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={oldPassword}
+                      onChangeText={setOldPassword}
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      secureTextEntry
+                      onFocus={() => scrollToInput(900)}
+                      returnKeyType="next"
+                    />
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>New Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      secureTextEntry
+                      onFocus={() => scrollToInput(1000)}
+                      returnKeyType="next"
+                    />
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Confirm Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      secureTextEntry
+                      onFocus={() => scrollToInput(1100)}
+                      returnKeyType="done"
+                    />
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.saveButton, isChangingPassword && styles.saveButtonDisabled]}
+                    onPress={handleChangePassword}
+                    disabled={isChangingPassword}
+                  >
+                    {isChangingPassword ? (
+                      <ActivityIndicator size="small" color="#1a1a1a" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Change Password</Text>
+                    )}
+                  </TouchableOpacity>
                 </View>
-
-                <TouchableOpacity
-                  style={[styles.saveButton, isChangingPassword && styles.saveButtonDisabled]}
-                  onPress={handleChangePassword}
-                  disabled={isChangingPassword}
-                >
-                  {isChangingPassword ? (
-                    <ActivityIndicator size="small" color="#1a1a1a" />
-                  ) : (
-                    <Text style={styles.saveButtonText}>Change Password</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            )}
-          </BlurView>
+              )}
+            </View>
+          )}
         </View>
 
         <View style={styles.bottomPadding} />
@@ -1111,7 +1325,7 @@ const ProfileScreen = () => {
               <View style={styles.daySummaryItem}>
                 <Icon name="footsteps" size={20} color="#22c55e" />
                 <Text style={styles.daySummaryValue}>
-                  {selectedDayDetails?.totalSteps?.toLocaleString() || selectedDayDetails?.steps || 0}
+                  {formatNumber(selectedDayDetails?.totalSteps || selectedDayDetails?.steps || 0)}
                 </Text>
                 <Text style={styles.daySummaryLabel}>Steps</Text>
               </View>
@@ -1127,7 +1341,7 @@ const ProfileScreen = () => {
               <View style={styles.daySummaryItem}>
                 <Icon name="flame" size={20} color="#f97316" />
                 <Text style={styles.daySummaryValue}>
-                  {selectedDayDetails?.totalKcal?.toFixed(0) || 0}
+                  {formatNumber(selectedDayDetails?.totalKcal || 0)}
                 </Text>
                 <Text style={styles.daySummaryLabel}>Kcal</Text>
               </View>
@@ -1481,6 +1695,10 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   accordionBlur: {
     backgroundColor: 'rgba(249, 249, 249, 0.1)',
   },
+  accordionBlurAndroid: {
+    backgroundColor: 'rgba(249, 249, 249, 0.15)',
+    padding: 0,
+  },
   accordionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1542,6 +1760,8 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     paddingVertical: 14,
     fontSize: 14,
     color: colors.textWhite,
+    zIndex: 10,
+    minHeight: 48,
   },
   saveButton: {
     backgroundColor: '#f5c842',
@@ -1561,7 +1781,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     opacity: 0.7,
   },
   bottomPadding: {
-    height: 20,
+    height: 150,
   },
   // Dropdown styles
   dropdownButton: {

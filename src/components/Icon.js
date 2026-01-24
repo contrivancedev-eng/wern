@@ -85,6 +85,15 @@ const iconMap = {
   'water': { set: 'Ionicons', name: 'water' },
   'leaf': { set: 'Ionicons', name: 'leaf' },
   'stop': { set: 'Ionicons', name: 'stop' },
+  'battery-charging': { set: 'Ionicons', name: 'battery-charging' },
+  'notifications': { set: 'Ionicons', name: 'notifications' },
+  'fitness': { set: 'Ionicons', name: 'fitness' },
+  'location': { set: 'Ionicons', name: 'location' },
+  'location-outline': { set: 'Ionicons', name: 'location-outline' },
+  'ellipse-outline': { set: 'Ionicons', name: 'ellipse-outline' },
+  'close-circle': { set: 'Ionicons', name: 'close-circle' },
+  'search': { set: 'Ionicons', name: 'search' },
+  'search-outline': { set: 'Ionicons', name: 'search-outline' },
 };
 
 const Icon = ({ name, size = 24, color = '#FFFFFF', style }) => {

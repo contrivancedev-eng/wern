@@ -2,16 +2,17 @@ import React, { useState, useCallback } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Platform, Image } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, TopNavbar, GradientBackground } from '../components';
 import { HomeScreen, WalkScreen, DigitalVaultScreen, ReferScreen, ProfileScreen } from '../screens/main';
 import { useWalking, useTheme, useAuth } from '../context';
 
 const Tab = createBottomTabNavigator();
 
-const CustomTabBar = ({ state, descriptors, navigation, colors }) => {
+const CustomTabBar = ({ state, descriptors, navigation, colors, bottomInset }) => {
   return (
     <View style={styles.tabBarContainer}>
-      <View style={[styles.tabBar, { backgroundColor: colors.tabBarBackground, borderTopColor: colors.cardBorder }]}>
+      <View style={[styles.tabBar, { backgroundColor: colors.tabBarBackground, borderTopColor: colors.cardBorder, paddingBottom: Math.max(bottomInset, 10) }]}>
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
           const label = options.tabBarLabel || route.name;
@@ -95,6 +96,7 @@ const BottomTabNavigator = () => {
   const { isWalking } = useWalking();
   const { colors } = useTheme();
   const { logout } = useAuth();
+  const insets = useSafeAreaInsets();
 
   // Only hide blob when walking AND on Walk screen
   const shouldHideBlob = isWalking && currentRoute === 'Walk';
@@ -122,7 +124,7 @@ const BottomTabNavigator = () => {
         <TopNavbar onLittiesPress={handleLittiesPress} onReferPress={handleReferPress} onProfilePress={handleProfilePress} onLogout={handleLogout} />
         <View style={styles.contentContainer}>
           <Tab.Navigator
-            tabBar={(props) => <CustomTabBar {...props} colors={colors} />}
+            tabBar={(props) => <CustomTabBar {...props} colors={colors} bottomInset={insets.bottom} />}
             screenOptions={{
               headerShown: false,
               lazy: true,

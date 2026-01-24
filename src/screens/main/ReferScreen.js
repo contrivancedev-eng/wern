@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator, Share, Linking, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { BlurView } from 'expo-blur';
 import { Icon } from '../../components';
@@ -65,6 +65,151 @@ const ReferScreen = ({ onClose }) => {
     await Clipboard.setStringAsync(referralCode);
     setShowCopied(true);
     setTimeout(() => setShowCopied(false), 2000);
+  };
+
+  // Generate referral link and message
+  const getReferralMessage = () => {
+    const appLink = `https://wern.app/invite/${referralCode}`;
+    return `Join me on WERN and start earning rewards by walking! Use my referral code: ${referralCode}\n\nDownload now: ${appLink}`;
+  };
+
+  const getReferralLink = () => {
+    return `https://wern.app/invite/${referralCode}`;
+  };
+
+  // Handle social media sharing
+  const handleShare = async (platform) => {
+    const message = getReferralMessage();
+    const link = getReferralLink();
+    const encodedMessage = encodeURIComponent(message);
+    const encodedLink = encodeURIComponent(link);
+
+    try {
+      let url = null;
+
+      switch (platform) {
+        case 'whatsapp':
+          url = `whatsapp://send?text=${encodedMessage}`;
+          break;
+        case 'telegram':
+          url = `tg://msg?text=${encodedMessage}`;
+          break;
+        case 'twitter':
+          url = `twitter://post?message=${encodedMessage}`;
+          break;
+        case 'facebook':
+          // Facebook doesn't support pre-filled text on mobile, just opens share dialog
+          url = `fb://share/?quote=${encodedMessage}`;
+          break;
+        case 'instagram':
+          // Instagram doesn't support direct sharing, copy to clipboard and open app
+          await Clipboard.setStringAsync(message);
+          Alert.alert(
+            'Share on Instagram',
+            'Your referral message has been copied! Paste it in your Instagram story or DM.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Open Instagram',
+                onPress: async () => {
+                  const instagramUrl = 'instagram://app';
+                  const canOpen = await Linking.canOpenURL(instagramUrl);
+                  if (canOpen) {
+                    await Linking.openURL(instagramUrl);
+                  } else {
+                    await Linking.openURL('https://instagram.com');
+                  }
+                }
+              },
+            ]
+          );
+          return;
+        case 'snapchat':
+          // Snapchat doesn't support direct sharing, copy to clipboard and open app
+          await Clipboard.setStringAsync(message);
+          Alert.alert(
+            'Share on Snapchat',
+            'Your referral message has been copied! Paste it in your Snapchat chat.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Open Snapchat',
+                onPress: async () => {
+                  const snapchatUrl = 'snapchat://app';
+                  const canOpen = await Linking.canOpenURL(snapchatUrl);
+                  if (canOpen) {
+                    await Linking.openURL(snapchatUrl);
+                  } else {
+                    await Linking.openURL('https://snapchat.com');
+                  }
+                }
+              },
+            ]
+          );
+          return;
+        default:
+          // Fallback to native share
+          await Share.share({
+            message: message,
+            title: 'Join WERN',
+          });
+          return;
+      }
+
+      // Try to open the app-specific URL
+      if (url) {
+        const canOpen = await Linking.canOpenURL(url);
+        if (canOpen) {
+          await Linking.openURL(url);
+        } else {
+          // Fallback URLs for web if app is not installed
+          let fallbackUrl = null;
+          switch (platform) {
+            case 'whatsapp':
+              fallbackUrl = `https://wa.me/?text=${encodedMessage}`;
+              break;
+            case 'telegram':
+              fallbackUrl = `https://t.me/share/url?url=${encodedLink}&text=${encodeURIComponent(`Join me on WERN! Use code: ${referralCode}`)}`;
+              break;
+            case 'twitter':
+              fallbackUrl = `https://twitter.com/intent/tweet?text=${encodedMessage}`;
+              break;
+            case 'facebook':
+              fallbackUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodedLink}&quote=${encodedMessage}`;
+              break;
+          }
+
+          if (fallbackUrl) {
+            const canOpenFallback = await Linking.canOpenURL(fallbackUrl);
+            if (canOpenFallback) {
+              await Linking.openURL(fallbackUrl);
+            } else {
+              // Final fallback - use native share
+              await Share.share({
+                message: message,
+                title: 'Join WERN',
+              });
+            }
+          } else {
+            await Share.share({
+              message: message,
+              title: 'Join WERN',
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.log('Share error:', error.message);
+      // Fallback to native share on any error
+      try {
+        await Share.share({
+          message: message,
+          title: 'Join WERN',
+        });
+      } catch (shareError) {
+        console.log('Native share error:', shareError.message);
+      }
+    }
   };
 
   const formatDate = (dateString) => {
@@ -149,7 +294,12 @@ const ReferScreen = ({ onClose }) => {
         <Text style={styles.sectionTitle}>Share Your Referral link Via.</Text>
         <View style={styles.socialRow}>
           {socialLinks.map((social) => (
-            <TouchableOpacity key={social.id} style={styles.socialButton}>
+            <TouchableOpacity
+              key={social.id}
+              style={styles.socialButton}
+              onPress={() => handleShare(social.name)}
+              activeOpacity={0.7}
+            >
               <Image source={social.image} style={styles.socialIcon} resizeMode="contain" />
             </TouchableOpacity>
           ))}

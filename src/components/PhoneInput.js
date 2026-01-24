@@ -7,15 +7,33 @@ import { countryCodes } from '../data/staticData';
 const PhoneInput = ({ value, onChangeText, onChangeCountryCode, selectedCode: initialCode = '+971' }) => {
   const [showPicker, setShowPicker] = useState(false);
   const [currentCode, setCurrentCode] = useState(initialCode);
+  const [searchQuery, setSearchQuery] = useState('');
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const selectedCountry = countryCodes.find(c => c.code === currentCode) || countryCodes.find(c => c.code === '+971');
 
+  // Filter countries based on search query
+  const filteredCountries = useMemo(() => {
+    if (!searchQuery.trim()) return countryCodes;
+    const query = searchQuery.toLowerCase().trim();
+    return countryCodes.filter(
+      country =>
+        country.country.toLowerCase().includes(query) ||
+        country.code.includes(query)
+    );
+  }, [searchQuery]);
+
   const handleSelectCountry = (country) => {
     setCurrentCode(country.code);
     onChangeCountryCode?.(country.code);
     setShowPicker(false);
+    setSearchQuery('');
+  };
+
+  const handleClosePicker = () => {
+    setShowPicker(false);
+    setSearchQuery('');
   };
 
   return (
@@ -42,18 +60,49 @@ const PhoneInput = ({ value, onChangeText, onChangeCountryCode, selectedCode: in
         visible={showPicker}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowPicker(false)}
+        onRequestClose={handleClosePicker}
       >
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={() => setShowPicker(false)}
+          onPress={handleClosePicker}
         >
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Country</Text>
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Country</Text>
+              <TouchableOpacity onPress={handleClosePicker} style={styles.closeButton}>
+                <Icon name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Input */}
+            <View style={styles.searchContainer}>
+              <Icon name="search" size={20} color="#999" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search country or code..."
+                placeholderTextColor="#999"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+                  <Icon name="close-circle" size={18} color="#999" />
+                </TouchableOpacity>
+              )}
+            </View>
+
             <FlatList
-              data={countryCodes}
+              data={filteredCountries}
               keyExtractor={item => item.code}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>No countries found</Text>
+                </View>
+              }
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[styles.countryItem, item.code === currentCode && styles.selectedItem]}
@@ -108,17 +157,49 @@ const createStyles = (colors) => StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '60%',
+    maxHeight: '70%',
     paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    position: 'relative',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
     textAlign: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-    color: colors.textWhite,
+    color: '#333',
+  },
+  closeButton: {
+    position: 'absolute',
+    right: 16,
+    padding: 4,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    marginHorizontal: 16,
+    marginVertical: 12,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+  },
+  clearButton: {
+    padding: 4,
   },
   countryItem: {
     flexDirection: 'row',
@@ -134,11 +215,12 @@ const createStyles = (colors) => StyleSheet.create({
   countryName: {
     flex: 1,
     fontSize: 16,
-    color: colors.inputText,
+    color: '#333',
   },
   code: {
     fontSize: 16,
-    color: colors.inputPlaceholder,
+    color: '#999',
+    marginRight: 8,
   },
   selectedItem: {
     backgroundColor: '#E8F5E9',
@@ -146,6 +228,14 @@ const createStyles = (colors) => StyleSheet.create({
   selectedText: {
     color: colors.accent,
     fontWeight: '600',
+  },
+  emptyContainer: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#999',
   },
 });
 

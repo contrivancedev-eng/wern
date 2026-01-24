@@ -3,20 +3,27 @@ import * as Notifications from 'expo-notifications';
 
 const WALKING_NOTIFICATION_ID = 'walking-step-counter';
 const MILESTONE_NOTIFICATION_ID = 'milestone-notification';
+const STEP_COUNTER_CHANNEL = 'step-counter';
 
 // Track notification state
 let isNotificationActive = false;
-let isFirstNotification = true;
+let channelCreated = false;
 
 // Configure notification handler
-// shouldShowAlert: false = no heads-up popup, notification only in drawer
 if (Platform.OS !== 'web') {
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: false, // NO heads-up popup - only in notification drawer
-      shouldPlaySound: false,
-      shouldSetBadge: false,
-    }),
+    handleNotification: async (notification) => {
+      const data = notification.request.content.data;
+      const isMilestone = data?.type === 'milestone';
+
+      // Step counter: show but no sound/vibration (channel controls this)
+      // Milestone: show with sound and alert
+      return {
+        shouldShowAlert: true, // Must be true to show notification
+        shouldPlaySound: isMilestone,
+        shouldSetBadge: false,
+      };
+    },
   });
 }
 
@@ -35,82 +42,96 @@ export const requestNotificationPermissions = async () => {
       finalStatus = status;
     }
 
-    console.log('Notification permission status:', finalStatus);
+    console.log('🔔 Notification permission status:', finalStatus);
     return finalStatus === 'granted';
   } catch (error) {
-    console.log('Error requesting notification permissions:', error);
+    console.log('❌ Error requesting notification permissions:', error);
     return false;
   }
 };
 
-// Show persistent notification for walking session - Simple Fitze-like format
-export const showWalkingNotification = async (totalSteps, goalSteps = 10000, causeName = 'Walking', stats = {}) => {
-  if (Platform.OS === 'web') {
-    return;
-  }
+// Ensure channel is created before showing notifications
+const ensureChannelExists = async () => {
+  if (Platform.OS !== 'android' || channelCreated) return;
 
   try {
-    const stepsFormatted = totalSteps.toLocaleString();
-
-    // Build notification content - Simple Fitze-like format
-    const notificationContent = {
-      title: 'Counting your steps',
-      body: `Steps: ${stepsFormatted}`,
-      data: { type: 'walking', steps: totalSteps, goal: goalSteps },
-      sound: null,
-    };
-
-    // Android-specific options
-    if (Platform.OS === 'android') {
-      notificationContent.channelId = 'walking';
-      notificationContent.sticky = true;
-      notificationContent.autoDismiss = false;
-      notificationContent.priority = 'default'; // DEFAULT = shows in drawer reliably
-      notificationContent.color = '#1B8A9E';
-      notificationContent.ongoing = true;
-    }
-
-    console.log('📢 Showing notification:', { title: notificationContent.title, body: notificationContent.body });
-
-    // Schedule notification with same ID - this UPDATES existing notification silently
-    await Notifications.scheduleNotificationAsync({
-      identifier: WALKING_NOTIFICATION_ID,
-      content: notificationContent,
-      trigger: null,
+    // Create step counter channel with DEFAULT importance
+    // DEFAULT = shows in status bar and drawer, no heads-up, can make sound (but we disable it)
+    await Notifications.setNotificationChannelAsync(STEP_COUNTER_CHANNEL, {
+      name: 'Step Counter',
+      description: 'Shows your step count while walking',
+      importance: Notifications.AndroidImportance.DEFAULT, // DEFAULT shows in drawer
+      sound: null, // No sound
+      enableVibrate: false,
+      vibrationPattern: null,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      showBadge: false,
     });
-
-    console.log('✅ Notification scheduled successfully');
-    isNotificationActive = true;
-    isFirstNotification = false;
+    console.log('✅ Step counter channel ensured');
+    channelCreated = true;
   } catch (error) {
-    console.log('❌ Error showing notification:', error.message);
+    console.log('❌ Error ensuring channel:', error);
   }
 };
 
-// Update walking notification (alias for show)
-export const updateWalkingNotification = async (totalSteps, goalSteps = 10000, causeName = 'Walking', stats = {}) => {
-  if (Platform.OS === 'web') {
-    return;
-  }
+// Show persistent step counter notification in drawer
+export const showStepCounterNotification = async (totalSteps, goalSteps = 10000) => {
+  if (Platform.OS === 'web') return;
 
   try {
-    await showWalkingNotification(totalSteps, goalSteps, causeName, stats);
+    // Ensure channel exists first
+    await ensureChannelExists();
+
+    const stepsFormatted = totalSteps.toLocaleString();
+    const progress = Math.min(Math.round((totalSteps / goalSteps) * 100), 100);
+
+    const content = {
+      title: `🚶 ${stepsFormatted} steps`,
+      body: `${progress}% of daily goal`,
+      data: { type: 'step-counter' },
+      sound: false,
+    };
+
+    // Android-specific settings
+    if (Platform.OS === 'android') {
+      content.channelId = STEP_COUNTER_CHANNEL;
+      content.sticky = true;
+    }
+
+    console.log('📢 Scheduling step counter notification...');
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: WALKING_NOTIFICATION_ID,
+      content,
+      trigger: null, // Show immediately
+    });
+
+    isNotificationActive = true;
+    console.log('✅ Step counter notification shown:', stepsFormatted);
   } catch (error) {
-    console.log('Error updating notification:', error.message);
+    console.log('❌ Step counter notification failed:', error.message || error);
   }
+};
+
+// Legacy function for compatibility
+export const showWalkingNotification = async (totalSteps, goalSteps = 10000) => {
+  return showStepCounterNotification(totalSteps, goalSteps);
+};
+
+// Update walking notification (alias for show)
+export const updateWalkingNotification = async (totalSteps, goalSteps = 10000) => {
+  if (Platform.OS === 'web') return;
+  return showStepCounterNotification(totalSteps, goalSteps);
 };
 
 // Dismiss walking notification
 export const dismissWalkingNotification = async () => {
-  if (Platform.OS === 'web') {
-    return;
-  }
+  if (Platform.OS === 'web') return;
 
   try {
     await Notifications.dismissNotificationAsync(WALKING_NOTIFICATION_ID);
     isNotificationActive = false;
-    isFirstNotification = true; // Reset for next walking session
-    console.log('Walking notification dismissed');
+    console.log('✅ Walking notification dismissed');
   } catch (error) {
     console.log('Error dismissing notification:', error.message);
   }
@@ -118,37 +139,38 @@ export const dismissWalkingNotification = async () => {
 
 // Set up notification channels for Android
 export const setupNotificationChannel = async () => {
-  if (Platform.OS !== 'android') {
-    return;
-  }
+  if (Platform.OS !== 'android') return;
 
   try {
-    // Delete old channels if exist (to apply new settings)
+    // Delete old/renamed channels only (not the active step-counter channel)
     await Notifications.deleteNotificationChannelAsync('walking').catch(() => {});
-    await Notifications.deleteNotificationChannelAsync('milestone').catch(() => {});
+    // Note: We don't delete 'step-counter' channel to avoid race conditions
+    // with BackgroundStepService which also manages this channel
 
-    // Create channel with DEFAULT importance - shows in drawer, may show heads-up for first notification
-    // Using DEFAULT because LOW doesn't show on some devices
-    await Notifications.setNotificationChannelAsync('walking', {
-      name: 'Walking Progress',
-      description: 'Shows your step count progress while walking',
-      importance: Notifications.AndroidImportance.DEFAULT, // DEFAULT = shows in drawer reliably
-      vibrationPattern: null,
-      lightColor: '#1B8A9E',
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      bypassDnd: false,
+    // Create/update step counter channel with DEFAULT importance
+    // DEFAULT = shows in notification drawer and status bar, no heads-up popup
+    // setNotificationChannelAsync will create or update existing channel
+    await Notifications.setNotificationChannelAsync(STEP_COUNTER_CHANNEL, {
+      name: 'Step Counter',
+      description: 'Shows your step count while walking',
+      importance: Notifications.AndroidImportance.DEFAULT,
       sound: null,
       enableVibrate: false,
+      vibrationPattern: null,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       showBadge: false,
-      enableLights: false,
     });
-    console.log('Walking notification channel created with DEFAULT importance');
+    console.log('✅ Step counter channel ready (DEFAULT importance)');
+    channelCreated = true;
+
+    // Delete old milestone channel to apply any new settings (this one is OK to recreate)
+    await Notifications.deleteNotificationChannelAsync('milestone').catch(() => {});
 
     // Create milestone channel with HIGH importance - shows heads-up notification
     await Notifications.setNotificationChannelAsync('milestone', {
       name: 'Step Milestones',
-      description: 'Celebrates your step milestones every 500 steps',
-      importance: Notifications.AndroidImportance.HIGH, // HIGH = heads-up notification
+      description: 'Celebrates your step milestones',
+      importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 200, 100, 200],
       lightColor: '#22c55e',
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
@@ -158,55 +180,54 @@ export const setupNotificationChannel = async () => {
       showBadge: true,
       enableLights: true,
     });
-    console.log('Milestone notification channel created with HIGH importance');
+    console.log('✅ Milestone channel created (HIGH importance)');
   } catch (error) {
-    console.log('Error setting up notification channel:', error.message);
+    console.log('❌ Error setting up notification channels:', error.message);
   }
 };
 
-// Show heads-up milestone notification every 500 steps
+// Show heads-up milestone notification
 export const showMilestoneNotification = async (steps) => {
-  if (Platform.OS === 'web') {
-    return;
-  }
+  if (Platform.OS === 'web') return;
 
   try {
     const stepsFormatted = steps.toLocaleString();
 
-    // Get encouraging message based on milestone
     let message = '';
     if (steps >= 10000) {
       message = '🎉 Amazing! You hit your daily goal!';
     } else if (steps >= 5000) {
       message = '💪 Halfway there! Keep going!';
-    } else if (steps >= 2000) {
+    } else if (steps >= 2500) {
       message = '🔥 Great progress! You\'re on fire!';
     } else if (steps >= 1000) {
       message = '⭐ Nice work! Keep up the pace!';
+    } else if (steps >= 500) {
+      message = '🚶 Good start! Keep moving!';
+    } else if (steps >= 200) {
+      message = '👣 You\'re warming up! Keep going!';
     } else {
       message = '👟 Keep walking! Every step counts!';
     }
 
-    const notificationContent = {
+    const content = {
       title: `🏆 ${stepsFormatted} Steps Milestone!`,
       body: message,
       data: { type: 'milestone', steps },
       sound: 'default',
     };
 
-    // Android-specific options for heads-up notification
     if (Platform.OS === 'android') {
-      notificationContent.channelId = 'milestone';
-      notificationContent.priority = 'high';
-      notificationContent.color = '#22c55e';
+      content.channelId = 'milestone';
+      content.priority = 'high';
+      content.color = '#22c55e';
     }
 
-    console.log('🏆 Showing milestone notification:', { steps: stepsFormatted });
+    console.log('🏆 Showing milestone notification:', stepsFormatted);
 
-    // Show the notification - auto-dismiss after a few seconds
     await Notifications.scheduleNotificationAsync({
       identifier: `${MILESTONE_NOTIFICATION_ID}-${steps}`,
-      content: notificationContent,
+      content,
       trigger: null,
     });
 
@@ -227,9 +248,7 @@ export const showMilestoneNotification = async (steps) => {
 
 // Check if notifications are enabled
 export const areNotificationsEnabled = async () => {
-  if (Platform.OS === 'web') {
-    return false;
-  }
+  if (Platform.OS === 'web') return false;
 
   try {
     const { status } = await Notifications.getPermissionsAsync();
@@ -239,12 +258,42 @@ export const areNotificationsEnabled = async () => {
   }
 };
 
+// Get all scheduled notifications (for debugging)
+export const getScheduledNotifications = async () => {
+  try {
+    const notifications = await Notifications.getAllScheduledNotificationsAsync();
+    console.log('📋 Scheduled notifications:', notifications.length);
+    return notifications;
+  } catch (error) {
+    console.log('Error getting scheduled notifications:', error);
+    return [];
+  }
+};
+
+// Get all presented notifications (for debugging)
+export const getPresentedNotifications = async () => {
+  try {
+    const notifications = await Notifications.getPresentedNotificationsAsync();
+    console.log('📋 Presented notifications:', notifications.length);
+    notifications.forEach(n => {
+      console.log('  -', n.request.identifier, n.request.content.title);
+    });
+    return notifications;
+  } catch (error) {
+    console.log('Error getting presented notifications:', error);
+    return [];
+  }
+};
+
 export default {
   requestNotificationPermissions,
   showWalkingNotification,
+  showStepCounterNotification,
   updateWalkingNotification,
   dismissWalkingNotification,
   setupNotificationChannel,
   areNotificationsEnabled,
   showMilestoneNotification,
+  getScheduledNotifications,
+  getPresentedNotifications,
 };

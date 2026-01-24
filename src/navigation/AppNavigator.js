@@ -72,7 +72,7 @@ const linking = {
 
 const AppNavigator = () => {
   const { isDarkMode } = useTheme();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, needsSetup } = useAuth();
   const navigationTheme = getNavigationTheme(isDarkMode);
 
   // Show loading screen while checking auth state
@@ -84,20 +84,23 @@ const AppNavigator = () => {
     );
   }
 
+  // Show auth flow if not authenticated OR if needs setup
+  const showAuth = !isAuthenticated || needsSetup;
+
   return (
     <View style={styles.appContainer}>
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
       <NavigationContainer linking={Platform.OS === 'web' ? linking : undefined} theme={navigationTheme}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {isAuthenticated ? (
-            <Stack.Screen name="Main" component={MainNavigator} />
-          ) : (
+          {showAuth ? (
             <Stack.Screen name="Auth" component={AuthNavigator} />
+          ) : (
+            <Stack.Screen name="Main" component={MainNavigator} />
           )}
         </Stack.Navigator>
       </NavigationContainer>
       {/* Global floating step counter - visible on all screens when walking */}
-      {isAuthenticated && <FloatingStepCounter />}
+      {isAuthenticated && !needsSetup && <FloatingStepCounter />}
     </View>
   );
 };

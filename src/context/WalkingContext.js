@@ -18,7 +18,8 @@ const getStorageKeys = (userId) => ({
   dailyStats: `@wern_daily_stats_${userId || 'guest'}`,
 });
 
-// Legacy keys (for migration)
+// Legacy keys (for migration AND background service)
+// IMPORTANT: BackgroundStepService uses WALKING_STATE_KEY directly, so we MUST save to it
 const WALKING_STATE_KEY = '@wern_walking_state';
 const STEP_COUNT_KEY = '@wern_step_count';
 const LAST_DATE_KEY = '@wern_last_date';
@@ -108,9 +109,9 @@ export const WalkingProvider = ({ children }) => {
   const restoredStepCount = useRef(0); // Step count when session was restored
   const lastPedometerSteps = useRef(0); // Last known pedometer value for incremental counting
 
-  // Milestone tracking - notify every 500 steps
+  // Milestone tracking - notify every 100 steps
   const lastMilestoneReached = useRef(0);
-  const MILESTONE_INTERVAL = 500; // Notify every 500 steps
+  const MILESTONE_INTERVAL = 100; // Notify every 100 steps
 
   // Get today's date string (YYYY-MM-DD format)
   const getTodayDateString = () => {
@@ -251,7 +252,11 @@ export const WalkingProvider = ({ children }) => {
             setIsWalking(true);
             setActiveCause(state.activeCause);
             sessionStartSteps.current = state.sessionStartSteps || 0;
-            walkingStartTime.current = state.startTime ? new Date(state.startTime) : new Date();
+
+            // CRITICAL: Use NOW as the walking start time for restored sessions
+            // The old start time from storage won't work because pedometer can't
+            // track from a timestamp when the app wasn't running
+            walkingStartTime.current = new Date();
 
             // Restore session steps
             const savedSessionSteps = state.sessionSteps || 0;
@@ -262,27 +267,26 @@ export const WalkingProvider = ({ children }) => {
             // Calculate total steps for notification and restore
             const totalStepsRestored = (state.sessionStartSteps || 0) + savedSessionSteps;
 
-            // Mark this as a restored session so pedometer handler doesn't reset count
+            // Mark this as a restored session so pedometer handler adds to existing count
             isRestoredSession.current = true;
             restoredStepCount.current = totalStepsRestored;
-            lastPedometerSteps.current = 0; // Will be set when pedometer starts
+            lastPedometerSteps.current = 0; // Will track incremental steps from NOW
 
             // Set the step count immediately to the restored value
             setStepCount(totalStepsRestored);
-            console.log('📱 Restored walking session with steps:', totalStepsRestored);
+            console.log('📱 Restored walking session with steps:', totalStepsRestored, '- pedometer starting fresh from now');
 
             // Start background tracking with current step count (shows notification)
             try {
-              await BackgroundStepService.startBackgroundStepTracking(totalStepsRestored);
+              await BackgroundStepService.startBackgroundStepTracking(totalStepsRestored, DEFAULT_GOAL_STEPS, currentUserId.current);
             } catch (error) {
               console.log('Failed to start background tracking on restore:', error.message);
             }
           } else {
-            // Session from previous day - clear it
-            await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify({
-              isWalking: false,
-              activeCause: null,
-            }));
+            // Session from previous day - clear it (both keys)
+            const clearedState = { isWalking: false, activeCause: null };
+            await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify(clearedState));
+            await AsyncStorage.setItem(WALKING_STATE_KEY, JSON.stringify(clearedState));
           }
         }
       }
@@ -395,49 +399,29 @@ export const WalkingProvider = ({ children }) => {
         if (savedState) {
           const state = JSON.parse(savedState);
           state.sessionSteps = sessionSteps;
-          // Use user-specific key, not legacy key
+          // Save to both user-specific key AND legacy key (for BackgroundStepService)
           await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify(state));
+          // CRITICAL: Also save to legacy key - BackgroundStepService reads from this key
+          await AsyncStorage.setItem(WALKING_STATE_KEY, JSON.stringify(state));
         }
       };
       saveSession();
     }
   }, [isWalking, sessionSteps]);
 
-  // Update foreground notification when step count changes (debounced - every 5 steps to avoid performance issues)
+  // Update notification with step count - updates on every step change
   const lastNotifiedSteps = useRef(0);
-  const notificationUpdateTimeout = useRef(null);
 
   useEffect(() => {
     if (isWalking && Platform.OS !== 'web') {
-      // Update foreground notification every 5 steps or after 3 seconds of no updates
-      const stepDiff = Math.abs(stepCount - lastNotifiedSteps.current);
-
-      if (stepDiff >= 5) {
-        // Clear any pending timeout
-        if (notificationUpdateTimeout.current) {
-          clearTimeout(notificationUpdateTimeout.current);
-        }
+      // Update notification whenever steps change
+      if (stepCount !== lastNotifiedSteps.current) {
+        console.log('📱 Updating notification:', lastNotifiedSteps.current, '->', stepCount);
         lastNotifiedSteps.current = stepCount;
-        // Update the foreground service notification with current step count
-        BackgroundStepService.updateForegroundNotification(stepCount);
-      } else if (stepDiff > 0) {
-        // Schedule an update for smaller changes (after 3 seconds)
-        if (notificationUpdateTimeout.current) {
-          clearTimeout(notificationUpdateTimeout.current);
-        }
-        notificationUpdateTimeout.current = setTimeout(() => {
-          lastNotifiedSteps.current = stepCount;
-          BackgroundStepService.updateForegroundNotification(stepCount);
-        }, 3000);
+        BackgroundStepService.updateForegroundNotification(stepCount, goalSteps);
       }
     }
-
-    return () => {
-      if (notificationUpdateTimeout.current) {
-        clearTimeout(notificationUpdateTimeout.current);
-      }
-    };
-  }, [isWalking, stepCount]);
+  }, [isWalking, stepCount, goalSteps]);
 
   // Handle app state changes (foreground/background)
   useEffect(() => {
@@ -453,13 +437,16 @@ export const WalkingProvider = ({ children }) => {
         }));
 
         // Also save walking state with current session steps
-        await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify({
+        const bgWalkingState = {
           isWalking: true,
           activeCause: activeCause,
           sessionStartSteps: sessionStartSteps.current,
           sessionSteps: currentSessionSteps.current,
           startTime: walkingStartTime.current?.toISOString(),
-        }));
+        };
+        await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify(bgWalkingState));
+        // CRITICAL: Also save to legacy key - BackgroundStepService reads from this key
+        await AsyncStorage.setItem(WALKING_STATE_KEY, JSON.stringify(bgWalkingState));
         console.log('📱 Saved step count before background:', currentCount);
       }
 
@@ -467,11 +454,33 @@ export const WalkingProvider = ({ children }) => {
         // App came to foreground - check for new day
         await checkAndResetForNewDay();
 
-        // Get steps from pedometer
+        console.log('📱 App came to foreground, syncing steps...');
+
+        // First, sync any steps counted in background
+        if (isWalking) {
+          try {
+            const bgResult = await BackgroundStepService.syncStepsFromBackground();
+            if (bgResult) {
+              console.log('📱 Background sync result:', bgResult);
+            }
+
+            // Also check stored step count from background service
+            const storedCount = await BackgroundStepService.getCurrentStepCount();
+            if (storedCount > 0) {
+              setStepCount(prev => Math.max(prev, storedCount));
+              console.log('📱 Updated from stored count:', storedCount);
+            }
+          } catch (error) {
+            console.log('Error syncing background steps:', error);
+          }
+        }
+
+        // Get steps from pedometer directly
         if (isPedometerAvailable && isWalking && walkingStartTime.current) {
           try {
             const now = new Date();
             const result = await Pedometer.getStepCountAsync(walkingStartTime.current, now);
+            console.log('📱 Pedometer foreground result:', result);
             if (result && result.steps > 0) {
               // For restored sessions, handle incremental update
               if (isRestoredSession.current) {
@@ -742,22 +751,39 @@ export const WalkingProvider = ({ children }) => {
     if (userId) currentUserId.current = userId;
     if (location) currentLocation.current = location;
 
-    // Save state
-    await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify({
+    // Save state to both user-specific key AND legacy key (for BackgroundStepService)
+    const walkingState = {
       isWalking: true,
       activeCause: causeId,
       sessionStartSteps: stepCount,
       sessionSteps: 0,
       startTime: now.toISOString(),
-    }));
+    };
+    await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify(walkingState));
+    // CRITICAL: Also save to legacy key - BackgroundStepService reads from this key
+    await AsyncStorage.setItem(WALKING_STATE_KEY, JSON.stringify(walkingState));
 
     // Store cause ID for socket
     currentCauseId.current = causeId;
 
-    // Start background step tracking with current step count
-    // The foreground service notification will show the step count
+    // Setup notification channels for milestones
+    if (Platform.OS !== 'web') {
+      await NotificationService.requestNotificationPermissions();
+      await NotificationService.setupNotificationChannel();
+
+      // Request battery optimization exemption (first time only)
+      const batteryRequested = await PermissionService.hasBatteryOptimizationBeenRequested();
+      if (!batteryRequested) {
+        console.log('📱 Requesting battery optimization exemption...');
+        await PermissionService.requestBatteryOptimization();
+      }
+    }
+
+    // Start background step tracking - this shows the foreground service notification
+    // The foreground service notification is the ONLY reliable way to show steps in background
     try {
-      await BackgroundStepService.startBackgroundStepTracking(stepCount);
+      const started = await BackgroundStepService.startBackgroundStepTracking(stepCount, goalSteps, userId);
+      console.log('📢 Background tracking started:', started);
     } catch (error) {
       console.log('Failed to start background step tracking:', error.message);
     }
@@ -793,27 +819,31 @@ export const WalkingProvider = ({ children }) => {
         }));
       });
 
-      // Start periodic socket updates - send TOTAL steps (not session) for accurate km/kcal/litres calculation
-      // Only send if steps have changed since last send
-      lastSentSteps.current = 0; // Reset on start
+      // Start periodic socket updates - send DELTA steps (difference since last send)
+      // Server ACCUMULATES received steps, so we must send only new steps each time
+      // Example: If total is 1000 and we last sent at 995, send delta = 5
+      lastSentSteps.current = currentStepCountRef.current; // Start from current total (don't send existing steps again)
       socketSendInterval.current = setInterval(() => {
-        const totalSteps = currentStepCountRef.current; // Use total steps, not session
+        const totalSteps = currentStepCountRef.current;
         if (currentUserId.current && totalSteps > 0) {
-          // Only send if total steps have changed since last send
-          if (totalSteps !== lastSentSteps.current) {
+          // Calculate delta (new steps since last send)
+          const deltaSteps = totalSteps - lastSentSteps.current;
+
+          // Only send if there are new steps
+          if (deltaSteps > 0) {
             const stepData = {
               user_id: currentUserId.current,
               category_id: currentCauseId.current,
-              steps: totalSteps, // Send TOTAL daily steps for accurate km/kcal/litres
-              session_steps: currentSessionSteps.current, // Also send session steps for reference
+              steps: deltaSteps, // Send only NEW steps (delta), server will accumulate
+              session_steps: currentSessionSteps.current, // Session steps for reference
               timestamp: Math.floor(Date.now() / 1000),
               type: 'walk',
               lat: currentLocation.current?.lat || 0,
               lng: currentLocation.current?.lng || 0,
             };
             SocketService.sendStepEvent(stepData);
-            lastSentSteps.current = totalSteps;
-            console.log('📤 Sent steps to server:', totalSteps);
+            lastSentSteps.current = totalSteps; // Update last sent to current total
+            console.log('📤 Sent delta steps to server:', deltaSteps, '(total:', totalSteps, ')');
           }
         }
       }, SOCKET_SEND_INTERVAL);
@@ -825,32 +855,38 @@ export const WalkingProvider = ({ children }) => {
 
   // Stop walking
   const stopWalking = useCallback(async () => {
-    // Send final step data before disconnecting - send TOTAL steps for accurate server calculation
+    // Send final step data before disconnecting - send only DELTA (new steps since last send)
+    // Server accumulates, so we only send the difference
     const totalSteps = currentStepCountRef.current;
-    if (currentUserId.current && totalSteps > 0 && currentCauseId.current) {
+    const deltaSteps = totalSteps - lastSentSteps.current;
+
+    if (currentUserId.current && deltaSteps > 0 && currentCauseId.current) {
       const finalStepData = {
         user_id: currentUserId.current,
         category_id: currentCauseId.current,
-        steps: totalSteps, // Send TOTAL daily steps
-        session_steps: currentSessionSteps.current, // Also include session steps for reference
+        steps: deltaSteps, // Send only NEW steps since last send
+        session_steps: currentSessionSteps.current, // Session steps for reference
         timestamp: Math.floor(Date.now() / 1000),
         type: 'walk',
         lat: currentLocation.current?.lat || 0,
         lng: currentLocation.current?.lng || 0,
       };
       SocketService.sendStepEvent(finalStepData);
-      console.log('📤 Final steps sent to server:', totalSteps);
+      console.log('📤 Final delta steps sent to server:', deltaSteps, '(total:', totalSteps, ')');
     }
 
     setIsWalking(false);
 
-    // Save final session data
-    await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify({
+    // Save final session data to both keys
+    const stoppedState = {
       isWalking: false,
       activeCause: null,
       lastSessionSteps: sessionSteps,
       endTime: new Date().toISOString(),
-    }));
+    };
+    await AsyncStorage.setItem(storageKeys.current.walkingState, JSON.stringify(stoppedState));
+    // CRITICAL: Also save to legacy key - BackgroundStepService reads from this key
+    await AsyncStorage.setItem(WALKING_STATE_KEY, JSON.stringify(stoppedState));
 
     // Save daily stats to local storage (persist steps and litres for today)
     // km/kcal are calculated from stepCount, so no need to save them
@@ -1022,14 +1058,23 @@ export const WalkingProvider = ({ children }) => {
             setIsWalking(true);
             setActiveCause(state.activeCause);
             sessionStartSteps.current = state.sessionStartSteps || 0;
-            walkingStartTime.current = state.startTime ? new Date(state.startTime) : new Date();
+
+            // Use NOW for pedometer to work correctly after app restart
+            walkingStartTime.current = new Date();
+
             if (state.sessionSteps) {
               setSessionSteps(state.sessionSteps);
             }
 
             const totalSteps = (state.sessionStartSteps || 0) + (state.sessionSteps || 0);
+
+            // Mark as restored session so pedometer adds to existing count
+            isRestoredSession.current = true;
+            restoredStepCount.current = totalSteps;
+            lastPedometerSteps.current = 0;
+
             try {
-              await BackgroundStepService.startBackgroundStepTracking(totalSteps);
+              await BackgroundStepService.startBackgroundStepTracking(totalSteps, goalSteps, userId);
             } catch (error) {
               console.log('Failed to start background tracking:', error.message);
             }

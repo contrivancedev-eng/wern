@@ -1,36 +1,9 @@
 import { Pedometer } from 'expo-sensors';
-import * as BackgroundFetch from 'expo-background-fetch';
-import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform, AppState } from 'react-native';
+import { Platform } from 'react-native';
 
-const BACKGROUND_STEP_TASK = 'BACKGROUND_STEP_TASK';
 const STEP_DATA_KEY = '@wern_step_data';
 const SESSION_KEY = '@wern_walking_session';
-
-// Background task definition
-TaskManager.defineTask(BACKGROUND_STEP_TASK, async () => {
-  try {
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    // Get steps from device pedometer
-    const result = await Pedometer.getStepCountAsync(startOfDay, now);
-
-    if (result) {
-      await saveStepData({
-        date: startOfDay.toISOString().split('T')[0],
-        steps: result.steps,
-        lastUpdated: now.toISOString(),
-      });
-    }
-
-    return BackgroundFetch.BackgroundFetchResult.NewData;
-  } catch (error) {
-    console.log('Background step fetch error:', error);
-    return BackgroundFetch.BackgroundFetchResult.Failed;
-  }
-});
 
 // Save step data to storage
 const saveStepData = async (data) => {
@@ -169,34 +142,15 @@ export const subscribeToSteps = (callback) => {
   });
 };
 
-// Register background fetch task
+// Register background step task (no-op - background not supported)
 export const registerBackgroundStepTask = async () => {
-  try {
-    const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_STEP_TASK);
-
-    if (!isRegistered) {
-      await BackgroundFetch.registerTaskAsync(BACKGROUND_STEP_TASK, {
-        minimumInterval: 15 * 60, // 15 minutes
-        stopOnTerminate: false,
-        startOnBoot: true,
-      });
-      console.log('Background step task registered');
-    }
-  } catch (error) {
-    console.log('Error registering background task:', error);
-  }
+  // Background fetch removed - runs only in foreground
+  console.log('Step counting runs in foreground only');
 };
 
-// Unregister background fetch task
+// Unregister background step task (no-op)
 export const unregisterBackgroundStepTask = async () => {
-  try {
-    const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_STEP_TASK);
-    if (isRegistered) {
-      await BackgroundFetch.unregisterTaskAsync(BACKGROUND_STEP_TASK);
-    }
-  } catch (error) {
-    console.log('Error unregistering background task:', error);
-  }
+  // No-op
 };
 
 // Request permissions for step counting

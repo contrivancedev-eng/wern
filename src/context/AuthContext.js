@@ -27,12 +27,15 @@ export const useAuth = () => {
   return context;
 };
 
+const SETUP_COMPLETE_KEY = '@wern_setup_complete';
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [hasLoggedInBefore, setHasLoggedInBefore] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
   const [litties, setLitties] = useState(0);
   const [dataRefreshTrigger, setDataRefreshTrigger] = useState(0);
   const [walletAnimationTrigger, setWalletAnimationTrigger] = useState(0);
@@ -46,6 +49,7 @@ export const AuthProvider = ({ children }) => {
       const storedToken = await AsyncStorage.getItem('token');
       const userData = await AsyncStorage.getItem('user');
       const loggedInBefore = await AsyncStorage.getItem('hasLoggedInBefore');
+      const setupComplete = await AsyncStorage.getItem(SETUP_COMPLETE_KEY);
 
       if (loggedInBefore === 'true') {
         setHasLoggedInBefore(true);
@@ -54,7 +58,16 @@ export const AuthProvider = ({ children }) => {
       if (storedToken && userData) {
         setToken(storedToken);
         setUser(JSON.parse(userData));
-        setIsAuthenticated(true);
+
+        // Check if setup is complete
+        if (setupComplete === 'true') {
+          setIsAuthenticated(true);
+          setNeedsSetup(false);
+        } else {
+          // User has token but hasn't completed setup
+          setNeedsSetup(true);
+          setIsAuthenticated(false);
+        }
 
         // Fetch litties balance
         const littiesBalance = await fetchLittiesBalance(storedToken);
@@ -104,17 +117,31 @@ export const AuthProvider = ({ children }) => {
         const userData = userResult.data;
         await AsyncStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
-        setIsAuthenticated(true);
+
+        // Check if setup is already complete
+        const setupComplete = await AsyncStorage.getItem(SETUP_COMPLETE_KEY);
+        if (setupComplete === 'true') {
+          setIsAuthenticated(true);
+          setNeedsSetup(false);
+        } else {
+          // Navigate to setup flow
+          setNeedsSetup(true);
+        }
 
         // Fetch litties balance
         const littiesBalance = await fetchLittiesBalance(authToken);
         setLitties(littiesBalance);
 
-        return { success: true, user: userData };
+        return { success: true, user: userData, needsSetup: setupComplete !== 'true' };
       } else {
-        // Still mark as authenticated even if user details fail
-        setIsAuthenticated(true);
-        return { success: true, user: null };
+        // Check if setup is complete even if user details fail
+        const setupComplete = await AsyncStorage.getItem(SETUP_COMPLETE_KEY);
+        if (setupComplete === 'true') {
+          setIsAuthenticated(true);
+        } else {
+          setNeedsSetup(true);
+        }
+        return { success: true, user: null, needsSetup: setupComplete !== 'true' };
       }
     } catch (error) {
       return { success: false, error: error.message };
@@ -136,16 +163,18 @@ export const AuthProvider = ({ children }) => {
         const userData = userResult.data;
         await AsyncStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
-        setIsAuthenticated(true);
+
+        // New signups always need setup
+        setNeedsSetup(true);
 
         // Fetch litties balance
         const littiesBalance = await fetchLittiesBalance(authToken);
         setLitties(littiesBalance);
 
-        return { success: true, user: userData };
+        return { success: true, user: userData, needsSetup: true };
       } else {
-        setIsAuthenticated(true);
-        return { success: true, user: null };
+        setNeedsSetup(true);
+        return { success: true, user: null, needsSetup: true };
       }
     } catch (error) {
       return { success: false, error: error.message };
@@ -205,18 +234,31 @@ export const AuthProvider = ({ children }) => {
     setWalletAnimationTrigger(prev => prev + 1);
   };
 
+  // Complete setup and authenticate user
+  const completeSetup = async () => {
+    try {
+      await AsyncStorage.setItem(SETUP_COMPLETE_KEY, 'true');
+      setNeedsSetup(false);
+      setIsAuthenticated(true);
+    } catch (error) {
+      console.error('Error completing setup:', error);
+    }
+  };
+
   const value = {
     user,
     token,
     isLoading,
     isAuthenticated,
     hasLoggedInBefore,
+    needsSetup,
     litties,
     dataRefreshTrigger,
     walletAnimationTrigger,
     login,
     signup,
     logout,
+    completeSetup,
     updateLitties,
     refreshUserDetails,
     refreshLitties,
