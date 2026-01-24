@@ -6,7 +6,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import { Icon } from '../../components';
+import { Icon, LocationTrailMap } from '../../components';
 import CauseLottie from '../../components/CauseLottie';
 import { useTheme } from '../../context/ThemeContext';
 import { useWalking, useAuth, useWeather } from '../../context';
@@ -49,6 +49,7 @@ const WalkScreen = () => {
   });
   const [showHourlyGraph, setShowHourlyGraph] = useState(false);
   const [hourlyData, setHourlyData] = useState(Array(24).fill(0));
+  const [showMap, setShowMap] = useState(false);
   const hourlyScrollRef = useRef(null);
   const { colors, isDarkMode } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
@@ -248,7 +249,8 @@ const WalkScreen = () => {
   const prevIsWalking = useRef(isWalking);
   useEffect(() => {
     if (prevIsWalking.current && !isWalking) {
-      // Walking just stopped - refetch today's summary
+      // Walking just stopped - refetch today's summary and reset map view
+      setShowMap(false);
       setTimeout(() => {
         fetchTodaySummary();
       }, 1000); // Small delay to allow server to process final data
@@ -656,65 +658,123 @@ const WalkScreen = () => {
         {/* Animated Background (for Forest, Water, Food causes) - edge to edge */}
         {isWalking && hasAnimatedBackground && BackgroundSvg && (
           <View style={styles.walkingVideoContainer}>
-            <Animated.View
-              style={[
-                styles.animatedBackgroundContainer,
-                {
-                  transform: [
+            {showMap ? (
+              <>
+                <LocationTrailMap
+                  userId={user?.id || user?.user_id}
+                  isWalking={isWalking}
+                />
+                {/* Bottom gradient overlay for blending */}
+                <LinearGradient
+                  colors={
+                    isDarkMode
+                      ? ['transparent', 'rgba(17, 116, 132, 0.37)', 'rgb(17, 116, 132)']
+                      : ['transparent', 'rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.95)']
+                  }
+                  style={styles.videoGradientOverlay}
+                  pointerEvents="none"
+                />
+              </>
+            ) : (
+              <>
+                <Animated.View
+                  style={[
+                    styles.animatedBackgroundContainer,
                     {
-                      translateX: scrollAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, -SCREEN_WIDTH * 1.8], // Move from right to left
-                      }),
+                      transform: [
+                        {
+                          translateX: scrollAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, -SCREEN_WIDTH * 1.8], // Move from right to left
+                          }),
+                        },
+                      ],
                     },
-                  ],
-                },
-              ]}
+                  ]}
+                >
+                  <BackgroundSvg
+                    width={SCREEN_WIDTH * 2.8}
+                    height={280}
+                    preserveAspectRatio="xMinYMid slice"
+                  />
+                </Animated.View>
+                {/* Walking man gif overlay */}
+                <Image
+                  source={require('../../../assest/img/walkingman.gif')}
+                  style={styles.walkingManGif}
+                  resizeMode="contain"
+                />
+                {/* Bottom gradient overlay for blending */}
+                <LinearGradient
+                  colors={
+                    isDarkMode
+                      ? ['transparent', 'rgba(17, 116, 132, 0.37)', 'rgb(17, 116, 132)']
+                      : ['transparent', 'rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.95)']
+                  }
+                  style={styles.videoGradientOverlay}
+                />
+              </>
+            )}
+            {/* Map Toggle Button */}
+            <TouchableOpacity
+              style={styles.mapToggleButton}
+              onPress={() => setShowMap(!showMap)}
+              activeOpacity={0.8}
             >
-              <BackgroundSvg
-                width={SCREEN_WIDTH * 2.8}
-                height={280}
-                preserveAspectRatio="xMinYMid slice"
-              />
-            </Animated.View>
-            {/* Walking man gif overlay */}
-            <Image
-              source={require('../../../assest/img/walkingman.gif')}
-              style={styles.walkingManGif}
-              resizeMode="contain"
-            />
-            {/* Bottom gradient overlay for blending */}
-            <LinearGradient
-              colors={
-                isDarkMode
-                  ? ['transparent', 'rgba(17, 116, 132, 0.37)', 'rgb(17, 116, 132)']
-                  : ['transparent', 'rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.95)']
-              }
-              style={styles.videoGradientOverlay}
-            />
+              <Icon name={showMap ? 'videocam' : 'map'} size={20} color="#FFFFFF" />
+            </TouchableOpacity>
           </View>
         )}
 
         {/* Walking Video (for Labubu and Women's Empowerment) - edge to edge */}
         {isWalking && currentCauseReward.video && (
           <View style={styles.walkingVideoContainer}>
-            <Video
-              source={currentCauseReward.video}
-              style={styles.walkingVideo}
-              resizeMode={ResizeMode.COVER}
-              isLooping
-              isMuted
-              shouldPlay
-            />
-            {/* Bottom gradient overlay for blending */}
-            <LinearGradient
-              colors={
-                isDarkMode
-                  ? ['transparent', 'rgba(17, 116, 132, 0.8)', 'rgb(17, 116, 132)']
-                  : ['transparent', 'rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.98)']
-              }
-              style={styles.videoGradientOverlay}
-            />
+            {showMap ? (
+              <>
+                <LocationTrailMap
+                  userId={user?.id || user?.user_id}
+                  isWalking={isWalking}
+                />
+                {/* Bottom gradient overlay for blending */}
+                <LinearGradient
+                  colors={
+                    isDarkMode
+                      ? ['transparent', 'rgba(17, 116, 132, 0.8)', 'rgb(17, 116, 132)']
+                      : ['transparent', 'rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.98)']
+                  }
+                  style={styles.videoGradientOverlay}
+                  pointerEvents="none"
+                />
+              </>
+            ) : (
+              <>
+                <Video
+                  source={currentCauseReward.video}
+                  style={styles.walkingVideo}
+                  resizeMode={ResizeMode.COVER}
+                  isLooping
+                  isMuted
+                  shouldPlay
+                />
+                {/* Bottom gradient overlay for blending */}
+                <LinearGradient
+                  colors={
+                    isDarkMode
+                      ? ['transparent', 'rgba(17, 116, 132, 0.8)', 'rgb(17, 116, 132)']
+                      : ['transparent', 'rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.98)']
+                  }
+                  style={styles.videoGradientOverlay}
+                />
+              </>
+            )}
+            {/* Map Toggle Button */}
+            <TouchableOpacity
+              style={styles.mapToggleButton}
+              onPress={() => setShowMap(!showMap)}
+              activeOpacity={0.8}
+            >
+              <Icon name={showMap ? 'videocam' : 'map'} size={20} color="#FFFFFF" />
+            </TouchableOpacity>
           </View>
         )}
 
@@ -1148,6 +1208,18 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     left: 0,
     right: 0,
     height: 80,
+  },
+  mapToggleButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 20,
   },
   // Animated background for causes 1, 2, 3
   animatedBackgroundContainer: {

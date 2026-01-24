@@ -94,6 +94,10 @@ const iconMap = {
   'close-circle': { set: 'Ionicons', name: 'close-circle' },
   'search': { set: 'Ionicons', name: 'search' },
   'search-outline': { set: 'Ionicons', name: 'search-outline' },
+  'map': { set: 'Ionicons', name: 'map' },
+  'map-outline': { set: 'Ionicons', name: 'map-outline' },
+  'videocam': { set: 'Ionicons', name: 'videocam' },
+  'videocam-outline': { set: 'Ionicons', name: 'videocam-outline' },
 };
 
 const Icon = ({ name, size = 24, color = '#FFFFFF', style }) => {
