@@ -269,11 +269,11 @@ const LocationTrailMap = ({ userId, isWalking }) => {
 
           var currentHeading = 0;
 
-          // Create arrow icon with rotation
+          // Create arrow icon with rotation (only used for initial creation)
           function createArrowIcon(rotation) {
             return L.divIcon({
               className: 'arrow-container',
-              html: '<div class="arrow-marker" style="transform: rotate(' + rotation + 'deg);"></div>',
+              html: '<div id="arrow-element" class="arrow-marker" style="transform: rotate(' + rotation + 'deg);"></div>',
               iconSize: [24, 24],
               iconAnchor: [12, 12]
             });
@@ -299,11 +299,12 @@ const LocationTrailMap = ({ userId, isWalking }) => {
             }).addTo(map);
           ` : ''}
 
-          // Function to update heading/rotation
+          // Function to update heading/rotation - directly update CSS transform
           function updateHeading(newHeading) {
             currentHeading = newHeading;
-            if (currentMarker) {
-              currentMarker.setIcon(createArrowIcon(newHeading));
+            var arrowEl = document.getElementById('arrow-element');
+            if (arrowEl) {
+              arrowEl.style.transform = 'rotate(' + newHeading + 'deg)';
             }
           }
 
@@ -311,7 +312,6 @@ const LocationTrailMap = ({ userId, isWalking }) => {
           function updateCurrentLocation(lat, lng) {
             if (currentMarker) {
               currentMarker.setLatLng([lat, lng]);
-              currentMarker.setIcon(createArrowIcon(currentHeading));
             } else {
               currentMarker = L.marker([lat, lng], {
                 icon: createArrowIcon(currentHeading)
