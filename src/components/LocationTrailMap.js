@@ -141,9 +141,8 @@ const LocationTrailMap = ({ userId, isWalking }) => {
         if (normalizedDiff > 5 && timeDiff > 300) {
           lastHeadingRef.current = newHeading;
           lastHeadingUpdateRef.current = now;
-          setHeading(newHeading);
 
-          // Update WebView with new heading
+          // Update WebView with new heading (no React state update to avoid re-render)
           if (webViewRef.current) {
             webViewRef.current.injectJavaScript(`
               updateHeading(${newHeading});
