@@ -3,18 +3,36 @@ import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
+import { Magnetometer } from 'expo-sensors';
 
 const LocationTrailMap = ({ userId, isWalking }) => {
   const [trail, setTrail] = useState([]);
   const [currentLocation, setCurrentLocation] = useState(null);
+  const [heading, setHeading] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const webViewRef = useRef(null);
   const locationSubscription = useRef(null);
+  const magnetometerSubscription = useRef(null);
+  const lastHeadingRef = useRef(0);
+  const lastHeadingUpdateRef = useRef(0);
 
   // Get today's date string for storage key
   const getTodayDateString = () => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+
+  // Calculate heading from magnetometer data
+  const calculateHeading = (magnetometerData) => {
+    const { x, y } = magnetometerData;
+    let angle = Math.atan2(y, x) * (180 / Math.PI);
+    // Normalize to 0-360
+    if (angle < 0) {
+      angle += 360;
+    }
+    // Adjust for device orientation (pointing up)
+    angle = (angle + 90) % 360;
+    return angle;
   };
 
   // Load trail from AsyncStorage
@@ -102,6 +120,47 @@ const LocationTrailMap = ({ userId, isWalking }) => {
     getCurrentLocation();
   }, []);
 
+  // Subscribe to magnetometer for compass heading
+  useEffect(() => {
+    const subscribe = async () => {
+      Magnetometer.setUpdateInterval(200); // Update every 200ms
+      magnetometerSubscription.current = Magnetometer.addListener((data) => {
+        const newHeading = calculateHeading(data);
+        const now = Date.now();
+
+        // Only update if heading changed by more than 5 degrees AND at least 300ms passed
+        const headingDiff = Math.abs(newHeading - lastHeadingRef.current);
+        const timeDiff = now - lastHeadingUpdateRef.current;
+
+        // Handle wrap-around (e.g., 355 to 5 degrees)
+        const normalizedDiff = headingDiff > 180 ? 360 - headingDiff : headingDiff;
+
+        if (normalizedDiff > 5 && timeDiff > 300) {
+          lastHeadingRef.current = newHeading;
+          lastHeadingUpdateRef.current = now;
+          setHeading(newHeading);
+
+          // Update WebView with new heading
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript(`
+              updateHeading(${newHeading});
+              true;
+            `);
+          }
+        }
+      });
+    };
+
+    subscribe();
+
+    return () => {
+      if (magnetometerSubscription.current) {
+        magnetometerSubscription.current.remove();
+        magnetometerSubscription.current = null;
+      }
+    };
+  }, []);
+
   // Track location when walking
   useEffect(() => {
     if (isWalking) {
@@ -173,19 +232,19 @@ const LocationTrailMap = ({ userId, isWalking }) => {
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           html, body, #map { width: 100%; height: 100%; }
-          .current-location-marker {
-            background: #22c55e;
-            border: 3px solid white;
-            border-radius: 50%;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          .arrow-marker {
+            width: 0;
+            height: 0;
+            border-left: 12px solid transparent;
+            border-right: 12px solid transparent;
+            border-bottom: 24px solid #22c55e;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+            transition: transform 0.3s ease-out;
           }
-          .pulse {
-            animation: pulse 2s infinite;
-          }
-          @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
-            70% { box-shadow: 0 0 0 15px rgba(34, 197, 94, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+          .arrow-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
           }
         </style>
       </head>
@@ -194,27 +253,39 @@ const LocationTrailMap = ({ userId, isWalking }) => {
         <script>
           var map = L.map('map', {
             zoomControl: false,
-            attributionControl: false
+            attributionControl: false,
+            dragging: false,
+            touchZoom: false,
+            scrollWheelZoom: false,
+            doubleClickZoom: false,
+            boxZoom: false,
+            keyboard: false,
+            tap: false
           }).setView([${centerLat}, ${centerLng}], 16);
 
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
           }).addTo(map);
 
-          // Custom marker icon for current location
-          var currentLocationIcon = L.divIcon({
-            className: 'current-location-marker pulse',
-            iconSize: [20, 20],
-            iconAnchor: [10, 10]
-          });
+          var currentHeading = 0;
+
+          // Create arrow icon with rotation
+          function createArrowIcon(rotation) {
+            return L.divIcon({
+              className: 'arrow-container',
+              html: '<div class="arrow-marker" style="transform: rotate(' + rotation + 'deg);"></div>',
+              iconSize: [24, 24],
+              iconAnchor: [12, 12]
+            });
+          }
 
           var currentMarker = null;
           var trailPolyline = null;
 
-          // Initialize current location marker
+          // Initialize current location marker with arrow
           ${currentLocation ? `
             currentMarker = L.marker([${currentLocation.lat}, ${currentLocation.lng}], {
-              icon: currentLocationIcon
+              icon: createArrowIcon(${heading})
             }).addTo(map);
           ` : ''}
 
@@ -228,13 +299,22 @@ const LocationTrailMap = ({ userId, isWalking }) => {
             }).addTo(map);
           ` : ''}
 
+          // Function to update heading/rotation
+          function updateHeading(newHeading) {
+            currentHeading = newHeading;
+            if (currentMarker) {
+              currentMarker.setIcon(createArrowIcon(newHeading));
+            }
+          }
+
           // Function to update current location
           function updateCurrentLocation(lat, lng) {
             if (currentMarker) {
               currentMarker.setLatLng([lat, lng]);
+              currentMarker.setIcon(createArrowIcon(currentHeading));
             } else {
               currentMarker = L.marker([lat, lng], {
-                icon: currentLocationIcon
+                icon: createArrowIcon(currentHeading)
               }).addTo(map);
             }
             map.panTo([lat, lng]);

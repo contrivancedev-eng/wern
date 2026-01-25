@@ -47,22 +47,24 @@
     <key>NSCameraUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your camera</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your location</string>
+    <string>WERN needs background location to continue counting steps when the app is in background.</string>
     <key>NSLocationAlwaysUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your location</string>
+    <string>WERN needs background location to continue counting steps when the app is in background.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your location</string>
+    <string>WERN needs location access to track your walking progress.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your microphone</string>
     <key>NSMotionUsageDescription</key>
-    <string>WERN needs access to your motion data to count steps and track your walking progress.</string>
+    <string>WERN needs access to your motion sensors to accurately count your steps.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your photos</string>
     <key>RCTNewArchEnabled</key>
     <true/>
     <key>UIBackgroundModes</key>
     <array>
+      <string>location</string>
       <string>fetch</string>
+      <string>processing</string>
     </array>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>

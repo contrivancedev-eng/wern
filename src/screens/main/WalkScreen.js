@@ -486,15 +486,15 @@ const WalkScreen = () => {
     }
   };
 
-  // Handle animation start/stop based on walking state
+  // Handle animation start/stop based on walking state and map visibility
   useEffect(() => {
-    if (isWalking && hasAnimatedBackground) {
+    if (isWalking && hasAnimatedBackground && !showMap) {
       startScrollAnimation();
     } else {
       stopScrollAnimation();
     }
     return () => stopScrollAnimation();
-  }, [isWalking, hasAnimatedBackground]);
+  }, [isWalking, hasAnimatedBackground, showMap]);
 
   // Circular progress component
   const CircularProgress = ({ percent, size, strokeWidth, children }) => {
@@ -715,13 +715,23 @@ const WalkScreen = () => {
                 />
               </>
             )}
-            {/* Map Toggle Button */}
+            {/* Map Toggle Switch */}
             <TouchableOpacity
-              style={styles.mapToggleButton}
+              style={styles.mapToggleSwitch}
               onPress={() => setShowMap(!showMap)}
-              activeOpacity={0.8}
+              activeOpacity={0.9}
             >
-              <Icon name={showMap ? 'videocam' : 'map'} size={20} color="#FFFFFF" />
+              <View style={styles.mapToggleTrack}>
+                <View style={[styles.mapToggleThumb, showMap && styles.mapToggleThumbActive]}>
+                  <Icon name={showMap ? 'map' : 'videocam'} size={14} color="#333333" />
+                </View>
+                <View style={styles.mapToggleIconLeft}>
+                  {showMap && <Icon name="videocam" size={14} color="rgba(255,255,255,0.7)" />}
+                </View>
+                <View style={styles.mapToggleIconRight}>
+                  {!showMap && <Icon name="map" size={14} color="rgba(255,255,255,0.7)" />}
+                </View>
+              </View>
             </TouchableOpacity>
           </View>
         )}
@@ -767,13 +777,23 @@ const WalkScreen = () => {
                 />
               </>
             )}
-            {/* Map Toggle Button */}
+            {/* Map Toggle Switch */}
             <TouchableOpacity
-              style={styles.mapToggleButton}
+              style={styles.mapToggleSwitch}
               onPress={() => setShowMap(!showMap)}
-              activeOpacity={0.8}
+              activeOpacity={0.9}
             >
-              <Icon name={showMap ? 'videocam' : 'map'} size={20} color="#FFFFFF" />
+              <View style={styles.mapToggleTrack}>
+                <View style={[styles.mapToggleThumb, showMap && styles.mapToggleThumbActive]}>
+                  <Icon name={showMap ? 'map' : 'videocam'} size={14} color="#333333" />
+                </View>
+                <View style={styles.mapToggleIconLeft}>
+                  {showMap && <Icon name="videocam" size={14} color="rgba(255,255,255,0.7)" />}
+                </View>
+                <View style={styles.mapToggleIconRight}>
+                  {!showMap && <Icon name="map" size={14} color="rgba(255,255,255,0.7)" />}
+                </View>
+              </View>
             </TouchableOpacity>
           </View>
         )}
@@ -1209,17 +1229,57 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     right: 0,
     height: 80,
   },
-  mapToggleButton: {
+  mapToggleSwitch: {
     position: 'absolute',
     top: 12,
     right: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    zIndex: 20,
+  },
+  mapToggleTrack: {
+    width: 64,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  mapToggleThumb: {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 20,
+    zIndex: 2,
+  },
+  mapToggleThumbActive: {
+    left: 35,
+  },
+  mapToggleIconLeft: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  mapToggleIconRight: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
   },
   // Animated background for causes 1, 2, 3
   animatedBackgroundContainer: {
