@@ -236,8 +236,8 @@ const LocationTrailMap = ({ userId, isWalking }) => {
           * { margin: 0; padding: 0; box-sizing: border-box; }
           html, body, #map { width: 100%; height: 100%; }
           .arrow-marker {
-            width: 48px;
-            height: 48px;
+            width: 32px;
+            height: 32px;
             transition: transform 0.3s ease-out;
           }
           .arrow-container {
@@ -276,8 +276,8 @@ const LocationTrailMap = ({ userId, isWalking }) => {
             return L.divIcon({
               className: 'arrow-container',
               html: '<img id="arrow-element" class="arrow-marker" src="' + navArrowUrl + '" style="transform: rotate(' + rotation + 'deg);" />',
-              iconSize: [48, 48],
-              iconAnchor: [24, 24]
+              iconSize: [32, 32],
+              iconAnchor: [16, 16]
             });
           }
 
