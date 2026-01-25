@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { StyleSheet, View, Text, ScrollView, Image, TouchableOpacity, Modal, Dimensions, Platform, Animated, AppState } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Image, TouchableOpacity, Modal, Dimensions, Platform, Animated, AppState, PanResponder } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Svg, { Circle } from 'react-native-svg';
@@ -50,6 +50,10 @@ const WalkScreen = () => {
   const [showHourlyGraph, setShowHourlyGraph] = useState(false);
   const [hourlyData, setHourlyData] = useState(Array(24).fill(0));
   const [showMap, setShowMap] = useState(false);
+  const [mapHeight] = useState(new Animated.Value(280)); // Default map height
+  const mapHeightRef = useRef(280);
+  const MIN_MAP_HEIGHT = 200;
+  const MAX_MAP_HEIGHT = 500;
   const hourlyScrollRef = useRef(null);
   const { colors, isDarkMode } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
@@ -361,6 +365,29 @@ const WalkScreen = () => {
   const scrollAnim = useRef(new Animated.Value(0)).current;
   const animationRef = useRef(null);
 
+  // PanResponder for map height drag
+  const mapPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, gestureState) => {
+        const newHeight = mapHeightRef.current + gestureState.dy;
+        if (newHeight >= MIN_MAP_HEIGHT && newHeight <= MAX_MAP_HEIGHT) {
+          mapHeight.setValue(newHeight);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const newHeight = Math.max(MIN_MAP_HEIGHT, Math.min(MAX_MAP_HEIGHT, mapHeightRef.current + gestureState.dy));
+        mapHeightRef.current = newHeight;
+        Animated.spring(mapHeight, {
+          toValue: newHeight,
+          useNativeDriver: false,
+          friction: 7,
+        }).start();
+      },
+    })
+  ).current;
+
   // Progress calculation - use API goal or default to 10000
   const goalSteps = todaySummary.goal || 10000;
   const progressPercent = Math.min((stepCount / goalSteps) * 100, 100); // Cap at 100%
@@ -657,7 +684,7 @@ const WalkScreen = () => {
 
         {/* Animated Background (for Forest, Water, Food causes) - edge to edge */}
         {isWalking && hasAnimatedBackground && BackgroundSvg && (
-          <View style={styles.walkingVideoContainer}>
+          <Animated.View style={[styles.walkingVideoContainer, showMap && { height: mapHeight }]}>
             {showMap ? (
               <>
                 <LocationTrailMap
@@ -674,6 +701,10 @@ const WalkScreen = () => {
                   style={styles.videoGradientOverlay}
                   pointerEvents="none"
                 />
+                {/* Drag handle for resizing map */}
+                <View {...mapPanResponder.panHandlers} style={styles.mapDragHandle}>
+                  <View style={styles.mapDragIndicator} />
+                </View>
               </>
             ) : (
               <>
@@ -733,12 +764,12 @@ const WalkScreen = () => {
                 </View>
               </View>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         )}
 
         {/* Walking Video (for Labubu and Women's Empowerment) - edge to edge */}
         {isWalking && currentCauseReward.video && (
-          <View style={styles.walkingVideoContainer}>
+          <Animated.View style={[styles.walkingVideoContainer, showMap && { height: mapHeight }]}>
             {showMap ? (
               <>
                 <LocationTrailMap
@@ -755,6 +786,10 @@ const WalkScreen = () => {
                   style={styles.videoGradientOverlay}
                   pointerEvents="none"
                 />
+                {/* Drag handle for resizing map */}
+                <View {...mapPanResponder.panHandlers} style={styles.mapDragHandle}>
+                  <View style={styles.mapDragIndicator} />
+                </View>
               </>
             ) : (
               <>
@@ -795,7 +830,7 @@ const WalkScreen = () => {
                 </View>
               </View>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         )}
 
         {/* Today's Progress Card */}
@@ -1280,6 +1315,22 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1,
+  },
+  mapDragHandle: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 25,
+  },
+  mapDragIndicator: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
   },
   // Animated background for causes 1, 2, 3
   animatedBackgroundContainer: {
