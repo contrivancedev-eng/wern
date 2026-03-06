@@ -27,7 +27,6 @@ const FloatingStepCounter = () => {
   const expandAnim = useRef(new Animated.Value(0)).current;
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const lastPosition = useRef({ x: 0, y: 0 });
-
   const styles = useMemo(() => createStyles(colors, isDarkMode, insets), [colors, isDarkMode, insets]);
 
   // Full cause names mapping

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { StyleSheet, View, Text, ScrollView, Image, TouchableOpacity, Modal, Dimensions, Platform, Animated, AppState, PanResponder } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Image, TouchableOpacity, Modal, Dimensions, Platform, Animated, AppState, PanResponder, TextInput, Keyboard } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Svg, { Circle } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import { Icon, LocationTrailMap } from '../../components';
+import { Icon, LocationTrailMap, Toast } from '../../components';
 import CauseLottie from '../../components/CauseLottie';
 import { useTheme } from '../../context/ThemeContext';
 import { useWalking, useAuth, useWeather } from '../../context';
@@ -54,7 +54,24 @@ const WalkScreen = () => {
   const mapHeightRef = useRef(280);
   const MIN_MAP_HEIGHT = 200;
   const MAX_MAP_HEIGHT = 500;
+
+  // Weight management state
+  const [showWeightSection, setShowWeightSection] = useState(false);
+  const [currentWeight, setCurrentWeight] = useState('');
+  const [targetWeight, setTargetWeight] = useState('');
+  const [timelineMonths, setTimelineMonths] = useState('');
+  const [weightGoalSteps, setWeightGoalSteps] = useState(null);
+  const [weightProgress, setWeightProgress] = useState({ daysCompleted: 0, expectedWeightLoss: 0 });
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'error' });
   const hourlyScrollRef = useRef(null);
+
+  const showToast = (message, type = 'error') => {
+    setToast({ visible: true, message, type });
+  };
+
+  const hideToast = () => {
+    setToast({ visible: false, message: '', type: 'error' });
+  };
   const { colors, isDarkMode } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
   const {
@@ -73,7 +90,7 @@ const WalkScreen = () => {
     kcal,
     litres,
   } = useWalking();
-  const { user, token, dataRefreshTrigger } = useAuth();
+  const { user, token, dataRefreshTrigger, triggerDataRefresh } = useAuth();
 
   // Set current user for per-user step data storage
   useEffect(() => {
@@ -164,6 +181,120 @@ const WalkScreen = () => {
     }
   }, [user]);
 
+  // Load weight data from AsyncStorage
+  const loadWeightData = useCallback(async () => {
+    const userId = user?.id || user?.user_id;
+    if (!userId) return;
+
+    try {
+      const weightKey = `weightData_${userId}`;
+      const stored = await AsyncStorage.getItem(weightKey);
+
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setCurrentWeight(parsed.currentWeight || '');
+        setTargetWeight(parsed.targetWeight || '');
+        setTimelineMonths(parsed.timelineMonths || '');
+        setWeightGoalSteps(parsed.weightGoalSteps || null);
+        setWeightProgress(parsed.weightProgress || { daysCompleted: 0, expectedWeightLoss: 0 });
+      }
+    } catch (error) {
+      console.log('Error loading weight data:', error.message);
+    }
+  }, [user]);
+
+  // Save weight data to AsyncStorage
+  const saveWeightData = useCallback(async (data) => {
+    const userId = user?.id || user?.user_id;
+    if (!userId) return;
+
+    try {
+      const weightKey = `weightData_${userId}`;
+      await AsyncStorage.setItem(weightKey, JSON.stringify(data));
+    } catch (error) {
+      console.log('Error saving weight data:', error.message);
+    }
+  }, [user]);
+
+  // Calculate daily step goal based on weight loss target
+  // Formula: 1 kg = ~7700 calories to burn
+  // Average: 1 step = ~0.04 calories burned
+  const calculateWeightGoalSteps = useCallback(() => {
+    const current = parseFloat(currentWeight);
+    const target = parseFloat(targetWeight);
+    const months = parseFloat(timelineMonths);
+
+    if (!current || !target || !months || current <= target) {
+      return null;
+    }
+
+    const weightToLose = current - target; // in kg
+    const totalCaloriesToBurn = weightToLose * 7700; // calories needed
+    const totalDays = months * 30; // approximate days
+    const dailyCaloriesToBurn = totalCaloriesToBurn / totalDays;
+    const dailySteps = Math.round(dailyCaloriesToBurn / 0.04); // 0.04 cal per step
+
+    return Math.max(dailySteps, 5000); // Minimum 5000 steps per day
+  }, [currentWeight, targetWeight, timelineMonths]);
+
+  // Handle weight goal save
+  const handleSaveWeightGoal = useCallback(async () => {
+    Keyboard.dismiss();
+    const calculatedSteps = calculateWeightGoalSteps();
+
+    if (calculatedSteps) {
+      setWeightGoalSteps(calculatedSteps);
+
+      const data = {
+        currentWeight,
+        targetWeight,
+        timelineMonths,
+        weightGoalSteps: calculatedSteps,
+        weightProgress: { daysCompleted: 0, expectedWeightLoss: 0 },
+        startDate: getTodayDateString(),
+      };
+
+      saveWeightData(data);
+
+      // Also update the main goal locally
+      updateGoalSteps(calculatedSteps);
+
+      // Call API to sync goal with server (same as ProfileScreen)
+      if (token) {
+        try {
+          const response = await fetch(`${API_URL}save-user-goals`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+              token: token,
+              daily_step_goal: calculatedSteps,
+              activity_level: 'Intermediate',
+              weekly_goal: 5,
+            }),
+          });
+
+          const responseData = await response.json();
+
+          if (responseData.status === true) {
+            // Trigger data refresh so ProfileScreen gets updated goal
+            triggerDataRefresh();
+            showToast('Weight goal saved successfully!', 'success');
+          } else {
+            showToast(responseData.message || 'Failed to save weight goal.', 'error');
+          }
+        } catch (error) {
+          console.log('Error calling save-user-goals API:', error.message);
+          showToast('Failed to save weight goal. Please try again.', 'error');
+        }
+      } else {
+        showToast('Weight goal saved locally!', 'success');
+      }
+    }
+  }, [currentWeight, targetWeight, timelineMonths, calculateWeightGoalSteps, saveWeightData, updateGoalSteps, token, triggerDataRefresh]);
+
   // Track previous step count to calculate delta (use stepCount, not sessionSteps)
   const prevStepCountRef = useRef(0);
   const lastHourRef = useRef(new Date().getHours());
@@ -209,7 +340,59 @@ const WalkScreen = () => {
   useEffect(() => {
     fetchTodaySummary();
     loadHourlyData();
-  }, [fetchTodaySummary, loadHourlyData]);
+    loadWeightData();
+  }, [fetchTodaySummary, loadHourlyData, loadWeightData]);
+
+  // Track daily goal achievement for weight auto-update
+  const lastGoalCheckDateRef = useRef(null);
+
+  // Auto-update weight when daily goal is achieved
+  useEffect(() => {
+    if (!weightGoalSteps || !currentWeight || !targetWeight) return;
+
+    const today = getTodayDateString();
+
+    // Only check once per day when goal is met
+    if (stepCount >= weightGoalSteps && lastGoalCheckDateRef.current !== today) {
+      lastGoalCheckDateRef.current = today;
+
+      const current = parseFloat(currentWeight);
+      const target = parseFloat(targetWeight);
+      const months = parseFloat(timelineMonths);
+
+      if (current > target && months > 0) {
+        // Calculate expected daily weight loss
+        const weightToLose = current - target;
+        const totalDays = months * 30;
+        const dailyWeightLoss = weightToLose / totalDays;
+
+        // Update progress
+        const newDaysCompleted = weightProgress.daysCompleted + 1;
+        const newExpectedWeightLoss = weightProgress.expectedWeightLoss + dailyWeightLoss;
+
+        // Update current weight (reduce by daily expected loss)
+        const newCurrentWeight = Math.max(target, current - dailyWeightLoss).toFixed(1);
+
+        setCurrentWeight(newCurrentWeight);
+        setWeightProgress({
+          daysCompleted: newDaysCompleted,
+          expectedWeightLoss: parseFloat(newExpectedWeightLoss.toFixed(2)),
+        });
+
+        // Save updated data
+        saveWeightData({
+          currentWeight: newCurrentWeight,
+          targetWeight,
+          timelineMonths,
+          weightGoalSteps,
+          weightProgress: {
+            daysCompleted: newDaysCompleted,
+            expectedWeightLoss: parseFloat(newExpectedWeightLoss.toFixed(2)),
+          },
+        });
+      }
+    }
+  }, [stepCount, weightGoalSteps, currentWeight, targetWeight, timelineMonths, weightProgress, saveWeightData]);
 
   // Refetch data when dataRefreshTrigger changes (e.g., after saving goals in ProfileScreen)
   useEffect(() => {
@@ -685,6 +868,17 @@ const WalkScreen = () => {
         {/* Animated Background (for Forest, Water, Food causes) - edge to edge */}
         {isWalking && hasAnimatedBackground && BackgroundSvg && (
           <Animated.View style={[styles.walkingVideoContainer, showMap && { height: mapHeight }]}>
+            {/* Animated gradient background */}
+            <LinearGradient
+              colors={
+                isDarkMode
+                  ? ['#0d4f5c', '#117484', '#1a9aad', '#117484', '#0d4f5c']
+                  : ['#a8e6cf', '#88d8b0', '#6bc5a0', '#88d8b0', '#a8e6cf']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.walkingGradientBg}
+            />
             {showMap ? (
               <>
                 <LocationTrailMap
@@ -695,9 +889,10 @@ const WalkScreen = () => {
                 <LinearGradient
                   colors={
                     isDarkMode
-                      ? ['transparent', 'rgba(17, 116, 132, 0.37)', 'rgb(17, 116, 132)']
-                      : ['transparent', 'rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.95)']
+                      ? ['transparent', 'rgba(17, 116, 132, 0.2)', 'rgba(17, 116, 132, 0.5)', 'rgba(17, 116, 132, 0.8)', 'rgb(17, 116, 132)']
+                      : ['transparent', 'rgba(245, 247, 250, 0.3)', 'rgba(245, 247, 250, 0.6)', 'rgba(245, 247, 250, 0.85)', 'rgb(245, 247, 250)']
                   }
+                  locations={[0, 0.3, 0.5, 0.75, 1]}
                   style={styles.videoGradientOverlay}
                   pointerEvents="none"
                 />
@@ -739,9 +934,10 @@ const WalkScreen = () => {
                 <LinearGradient
                   colors={
                     isDarkMode
-                      ? ['transparent', 'rgba(17, 116, 132, 0.37)', 'rgb(17, 116, 132)']
-                      : ['transparent', 'rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.95)']
+                      ? ['transparent', 'rgba(17, 116, 132, 0.2)', 'rgba(17, 116, 132, 0.5)', 'rgba(17, 116, 132, 0.8)', 'rgb(17, 116, 132)']
+                      : ['transparent', 'rgba(245, 247, 250, 0.3)', 'rgba(245, 247, 250, 0.6)', 'rgba(245, 247, 250, 0.85)', 'rgb(245, 247, 250)']
                   }
+                  locations={[0, 0.3, 0.5, 0.75, 1]}
                   style={styles.videoGradientOverlay}
                 />
               </>
@@ -770,6 +966,17 @@ const WalkScreen = () => {
         {/* Walking Video (for Labubu and Women's Empowerment) - edge to edge */}
         {isWalking && currentCauseReward.video && (
           <Animated.View style={[styles.walkingVideoContainer, showMap && { height: mapHeight }]}>
+            {/* Animated gradient background */}
+            <LinearGradient
+              colors={
+                isDarkMode
+                  ? ['#0d4f5c', '#117484', '#1a9aad', '#117484', '#0d4f5c']
+                  : ['#a8e6cf', '#88d8b0', '#6bc5a0', '#88d8b0', '#a8e6cf']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.walkingGradientBg}
+            />
             {showMap ? (
               <>
                 <LocationTrailMap
@@ -780,9 +987,10 @@ const WalkScreen = () => {
                 <LinearGradient
                   colors={
                     isDarkMode
-                      ? ['transparent', 'rgba(17, 116, 132, 0.8)', 'rgb(17, 116, 132)']
-                      : ['transparent', 'rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.98)']
+                      ? ['transparent', 'rgba(17, 116, 132, 0.2)', 'rgba(17, 116, 132, 0.5)', 'rgba(17, 116, 132, 0.8)', 'rgb(17, 116, 132)']
+                      : ['transparent', 'rgba(245, 247, 250, 0.3)', 'rgba(245, 247, 250, 0.6)', 'rgba(245, 247, 250, 0.85)', 'rgb(245, 247, 250)']
                   }
+                  locations={[0, 0.3, 0.5, 0.75, 1]}
                   style={styles.videoGradientOverlay}
                   pointerEvents="none"
                 />
@@ -805,9 +1013,10 @@ const WalkScreen = () => {
                 <LinearGradient
                   colors={
                     isDarkMode
-                      ? ['transparent', 'rgba(17, 116, 132, 0.8)', 'rgb(17, 116, 132)']
-                      : ['transparent', 'rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.98)']
+                      ? ['transparent', 'rgba(17, 116, 132, 0.2)', 'rgba(17, 116, 132, 0.5)', 'rgba(17, 116, 132, 0.8)', 'rgb(17, 116, 132)']
+                      : ['transparent', 'rgba(245, 247, 250, 0.3)', 'rgba(245, 247, 250, 0.6)', 'rgba(245, 247, 250, 0.85)', 'rgb(245, 247, 250)']
                   }
+                  locations={[0, 0.3, 0.5, 0.75, 1]}
                   style={styles.videoGradientOverlay}
                 />
               </>
@@ -952,6 +1161,113 @@ const WalkScreen = () => {
                     <Text style={styles.hourlyLegendText}>Current hour</Text>
                   </View>
                 </View>
+              </View>
+            )}
+          </BlurView>
+        </View>
+
+        {/* Weight Management Section */}
+        <View style={styles.weightCard}>
+          <BlurView intensity={20} tint={isDarkMode ? 'dark' : 'light'} style={styles.weightCardBlur}>
+            {/* Weight Section Toggle */}
+            <TouchableOpacity
+              style={styles.weightToggle}
+              onPress={() => setShowWeightSection(!showWeightSection)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.weightToggleLeft}>
+                <Icon name="fitness" size={16} color="#f5c842" />
+                <Text style={styles.weightToggleText}>Weight Goal</Text>
+                {weightGoalSteps && (
+                  <View style={styles.weightBadge}>
+                    <Text style={styles.weightBadgeText}>{weightGoalSteps.toLocaleString()}/day</Text>
+                  </View>
+                )}
+              </View>
+              <Icon
+                name={showWeightSection ? 'chevron-up' : 'chevron-down'}
+                size={16}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            {/* Weight Section Content */}
+            {showWeightSection && (
+              <View style={styles.weightContent}>
+                {/* Compact Input Row */}
+                <View style={styles.weightInputRow}>
+                  <View style={styles.weightInputGroup}>
+                    <Text style={styles.weightInputLabel}>Current (kg)</Text>
+                    <TextInput
+                      style={styles.weightInput}
+                      value={currentWeight}
+                      onChangeText={(text) => setCurrentWeight(text.replace(/[^0-9.]/g, ''))}
+                      keyboardType="decimal-pad"
+                      placeholder="70"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'}
+                      maxLength={5}
+                    />
+                  </View>
+                  <Icon name="arrow-forward" size={14} color={isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)'} style={{ marginTop: 18 }} />
+                  <View style={styles.weightInputGroup}>
+                    <Text style={styles.weightInputLabel}>Target (kg)</Text>
+                    <TextInput
+                      style={styles.weightInput}
+                      value={targetWeight}
+                      onChangeText={(text) => setTargetWeight(text.replace(/[^0-9.]/g, ''))}
+                      keyboardType="decimal-pad"
+                      placeholder="65"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'}
+                      maxLength={5}
+                    />
+                  </View>
+                  <View style={styles.weightInputGroup}>
+                    <Text style={styles.weightInputLabel}>Months</Text>
+                    <TextInput
+                      style={styles.weightInput}
+                      value={timelineMonths}
+                      onChangeText={(text) => setTimelineMonths(text.replace(/[^0-9]/g, ''))}
+                      keyboardType="number-pad"
+                      placeholder="3"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'}
+                      maxLength={2}
+                    />
+                  </View>
+                </View>
+
+                {/* Preview + Button Row */}
+                <View style={styles.weightActionRow}>
+                  {currentWeight && targetWeight && timelineMonths && parseFloat(currentWeight) > parseFloat(targetWeight) ? (
+                    <View style={styles.weightPreview}>
+                      <Text style={styles.weightPreviewValue}>{calculateWeightGoalSteps()?.toLocaleString() || '--'}</Text>
+                      <Text style={styles.weightPreviewLabel}>steps/day</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.weightPreview}>
+                      <Text style={styles.weightPreviewPlaceholder}>Enter values</Text>
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    style={[
+                      styles.weightSaveButton,
+                      (!currentWeight || !targetWeight || !timelineMonths || parseFloat(currentWeight) <= parseFloat(targetWeight)) && styles.weightSaveButtonDisabled
+                    ]}
+                    onPress={handleSaveWeightGoal}
+                    activeOpacity={0.8}
+                    disabled={!currentWeight || !targetWeight || !timelineMonths || parseFloat(currentWeight) <= parseFloat(targetWeight)}
+                  >
+                    <Text style={styles.weightSaveButtonText}>Set</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Progress Info (if goal is set) */}
+                {weightGoalSteps && weightProgress.daysCompleted > 0 && (
+                  <View style={styles.weightProgressInfo}>
+                    <Text style={styles.weightProgressText}>
+                      {weightProgress.daysCompleted} days • {weightProgress.expectedWeightLoss.toFixed(1)} kg lost
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
           </BlurView>
@@ -1225,6 +1541,13 @@ const WalkScreen = () => {
           </BlurView>
         </View>
       </Modal>
+
+      <Toast
+        visible={toast.visible}
+        message={toast.message}
+        type={toast.type}
+        onHide={hideToast}
+      />
     </View>
   );
 };
@@ -1257,12 +1580,20 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  walkingGradientBg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 0,
+  },
   videoGradientOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 80,
+    height: 120,
   },
   mapToggleSwitch: {
     position: 'absolute',
@@ -1555,6 +1886,127 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     color: '#FFFFFF',
     marginLeft: 10,
   },
+  // Weight Management Styles
+  weightCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+  },
+  weightCardBlur: {
+    padding: 14,
+    backgroundColor: isDarkMode ? 'rgba(249, 249, 249, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+  },
+  weightToggle: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  weightToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  weightToggleText: {
+    fontSize: 14,
+    color: isDarkMode ? '#FFFFFF' : '#1a1a1a',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  weightBadge: {
+    backgroundColor: 'rgba(245, 200, 66, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  weightBadgeText: {
+    fontSize: 11,
+    color: '#f5c842',
+    fontWeight: '600',
+  },
+  weightContent: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+  },
+  weightInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  weightInputGroup: {
+    flex: 1,
+  },
+  weightInputLabel: {
+    fontSize: 10,
+    color: isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  weightInput: {
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    fontSize: 15,
+    fontWeight: '600',
+    color: isDarkMode ? '#FFFFFF' : '#1a1a1a',
+    textAlign: 'center',
+  },
+  weightActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    gap: 10,
+  },
+  weightPreview: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  weightPreviewValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#f5c842',
+  },
+  weightPreviewLabel: {
+    fontSize: 12,
+    color: isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)',
+  },
+  weightPreviewPlaceholder: {
+    fontSize: 12,
+    color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)',
+    fontStyle: 'italic',
+  },
+  weightSaveButton: {
+    backgroundColor: '#f5c842',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  weightSaveButtonDisabled: {
+    opacity: 0.4,
+  },
+  weightSaveButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  weightProgressInfo: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+  },
+  weightProgressText: {
+    fontSize: 12,
+    color: '#f5c842',
+    textAlign: 'center',
+  },
   // Section styles
   sectionDivider: {
     height: 1,
@@ -1741,7 +2193,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   modalContent: {
     flex: 1,
     padding: 20,
-    paddingTop: 20,
+    paddingTop: 50,
   },
   modalHeader: {
     flexDirection: 'row',

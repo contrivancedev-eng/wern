@@ -1,9 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
-
-// Get the resolved URI for the nav-arrow image
-const navArrowSource = Image.resolveAssetSource(require('../../assest/img/nav-arrow.png'));
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { Magnetometer } from 'expo-sensors';
@@ -268,13 +265,16 @@ const LocationTrailMap = ({ userId, isWalking }) => {
 
           var currentHeading = 0;
 
-          var navArrowUrl = '${navArrowSource.uri}';
+          // SVG arrow icon (inline to avoid loading issues in production)
+          var arrowSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="32" height="32"><circle cx="32" cy="32" r="28" fill="#22c55e"/><circle cx="32" cy="32" r="24" fill="#16a34a"/><path d="M32 14 L44 42 L32 34 L20 42 Z" fill="white"/></svg>';
 
           // Create arrow icon with rotation (only used for initial creation)
           function createArrowIcon(rotation) {
+            // Add 180 degrees to correct arrow direction
+            var correctedRotation = (rotation + 180) % 360;
             return L.divIcon({
               className: 'arrow-container',
-              html: '<img id="arrow-element" class="arrow-marker" src="' + navArrowUrl + '" style="transform: rotate(' + rotation + 'deg);" />',
+              html: '<div id="arrow-element" class="arrow-marker" style="transform: rotate(' + correctedRotation + 'deg);">' + arrowSvg + '</div>',
               iconSize: [32, 32],
               iconAnchor: [16, 16]
             });
@@ -303,9 +303,11 @@ const LocationTrailMap = ({ userId, isWalking }) => {
           // Function to update heading/rotation - directly update CSS transform
           function updateHeading(newHeading) {
             currentHeading = newHeading;
+            // Add 180 degrees to correct arrow direction
+            var correctedHeading = (newHeading + 180) % 360;
             var arrowEl = document.getElementById('arrow-element');
             if (arrowEl) {
-              arrowEl.style.transform = 'rotate(' + newHeading + 'deg)';
+              arrowEl.style.transform = 'rotate(' + correctedHeading + 'deg)';
             }
           }
 
