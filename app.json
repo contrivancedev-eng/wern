@@ -20,12 +20,20 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wern.app",
+      "buildNumber": "2",
       "infoPlist": {
         "NSMotionUsageDescription": "WERN needs access to your motion data to count steps and track your walking progress.",
         "NSLocationWhenInUseUsageDescription": "WERN needs location access to track your walking route.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "WERN needs background location to continue counting steps when the app is in background.",
         "NSLocationAlwaysUsageDescription": "WERN needs background location to continue counting steps when the app is in background.",
-        "UIBackgroundModes": ["location", "fetch", "processing"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "processing"
+        ],
+        "BGTaskSchedulerPermittedIdentifiers": [
+          "io.projectliberte.wern.background"
+        ]
       }
     },
     "android": {
@@ -80,6 +88,11 @@
     ],
     "web": {
       "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e2868b99-bc73-4216-906e-82cc476c358e"
+      }
     }
   }
 }

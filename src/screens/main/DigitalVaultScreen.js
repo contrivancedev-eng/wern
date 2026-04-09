@@ -49,7 +49,6 @@ const DigitalVaultScreen = () => {
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
 
   const contactEmail = 'support@wern.app';
-  const contactPhone = '+1 (800) 123-4567';
 
   // Map earn_category_id to icon
   const getCategoryIcon = (categoryId) => {
@@ -147,9 +146,6 @@ const DigitalVaultScreen = () => {
     Linking.openURL(`mailto:${contactEmail}`);
   };
 
-  const handlePhonePress = () => {
-    Linking.openURL(`tel:${contactPhone.replace(/[^0-9+]/g, '')}`);
-  };
 
   return (
     <View style={styles.container}>
@@ -317,22 +313,6 @@ const DigitalVaultScreen = () => {
               <View style={styles.contactInfo}>
                 <Text style={styles.contactLabel}>Email</Text>
                 <Text style={styles.contactValue}>{contactEmail}</Text>
-              </View>
-              <Icon
-                name="arrow-forward"
-                size={20}
-                color={isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted}
-              />
-            </TouchableOpacity>
-
-            {/* Phone */}
-            <TouchableOpacity style={styles.contactItem} onPress={handlePhonePress}>
-              <View style={styles.contactIconContainer}>
-                <Icon name="phone" size={24} color={isDarkMode ? '#FFFFFF' : '#1a1a1a'} />
-              </View>
-              <View style={styles.contactInfo}>
-                <Text style={styles.contactLabel}>Phone</Text>
-                <Text style={styles.contactValue}>{contactPhone}</Text>
               </View>
               <Icon
                 name="arrow-forward"
