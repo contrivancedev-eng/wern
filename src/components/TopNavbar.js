@@ -3,8 +3,10 @@ import { StyleSheet, View, Text, TouchableOpacity, Platform, Image, Modal, Switc
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from './Icon';
 import Logo from './Logo';
+import { openDevMenu } from './DevMenu';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { smallScale } from '../utils/responsive';
 
 // Sparkle component for shine effect
 const Sparkle = ({ delay, angle, distance }) => {
@@ -71,12 +73,58 @@ const Sparkle = ({ delay, angle, distance }) => {
   );
 };
 
-const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress }) => {
+const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+
+const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress, onNotificationsPress }) => {
   const insets = useSafeAreaInsets();
   const [showMenu, setShowMenu] = useState(false);
   const [showSparkles, setShowSparkles] = useState(false);
   const { colors, isDarkMode, toggleTheme } = useTheme();
-  const { user, litties, walletAnimationTrigger } = useAuth();
+  const { user, token, litties, walletAnimationTrigger } = useAuth();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Hidden dev-menu trigger: 5 taps on the logo within 2s opens the inspector.
+  const logoTapCount = useRef(0);
+  const logoTapTimer = useRef(null);
+  const handleLogoTap = () => {
+    logoTapCount.current += 1;
+    if (logoTapTimer.current) clearTimeout(logoTapTimer.current);
+    logoTapTimer.current = setTimeout(() => { logoTapCount.current = 0; }, 2000);
+    if (logoTapCount.current >= 5) {
+      logoTapCount.current = 0;
+      openDevMenu();
+    }
+  };
+
+  // Poll unread notification count every 60s and on mount/auth changes.
+  useEffect(() => {
+    if (!token) {
+      setUnreadCount(0);
+      return;
+    }
+    let cancelled = false;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { apiFetch } = require('../utils/apiClient');
+    const fetchUnread = async () => {
+      try {
+        const { json } = await apiFetch(
+          `${API_URL}get-notifications?token=${token}&limit=1&offset=0`,
+          { headers: { Accept: 'application/json' } }
+        );
+        if (!cancelled && json?.status === true && json?.data) {
+          setUnreadCount(json.data.unread_count || 0);
+        }
+      } catch (e) {
+        // Silent
+      }
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [token]);
 
   // Wallet animations
   const walletScale = useRef(new Animated.Value(1)).current;
@@ -163,11 +211,20 @@ const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress }) =
 
   return (
     <>
-      <View style={[styles.navbar, { paddingTop: insets.top + 10 }]}>
-        <View style={styles.logoContainer}>
+      <View style={[styles.navbar, { paddingTop: insets.top + smallScale(10) }]}>
+        <TouchableOpacity
+          style={styles.logoContainer}
+          onPress={handleLogoTap}
+          activeOpacity={1}
+        >
           <Logo width={28} />
-          <Text style={[styles.logoText, { color: colors.textWhite }]}>WERN</Text>
-        </View>
+          <Text
+            style={[styles.logoText, { color: colors.textWhite }]}
+            maxFontSizeMultiplier={1.1}
+          >
+            WERN
+          </Text>
+        </TouchableOpacity>
 
         <View style={styles.rightSection}>
           <Animated.View
@@ -255,9 +312,31 @@ const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress }) =
               )}
 
               <Icon name="wallet" size={18} color={colors.accent} />
-              <Text style={[styles.littiesText, { color: colors.textWhite }]}>{litties} Litties</Text>
+              <Text
+                style={[styles.littiesText, { color: colors.textWhite }]}
+                numberOfLines={1}
+                maxFontSizeMultiplier={1.1}
+              >
+                {litties} Litties
+              </Text>
             </TouchableOpacity>
           </Animated.View>
+
+          <TouchableOpacity
+            style={[
+              styles.bellContainer,
+              { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' },
+            ]}
+            onPress={onNotificationsPress}
+            activeOpacity={0.7}
+          >
+            <Icon
+              name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
+              size={22}
+              color={colors.textWhite}
+            />
+            {unreadCount > 0 && <View style={styles.bellDot} />}
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.avatarContainer}
@@ -319,8 +398,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: smallScale(20),
+    paddingVertical: smallScale(10),
+    paddingBottom: smallScale(8),
     backgroundColor: 'rgba(0, 0, 0, 0.1)',
     ...(Platform.OS === 'web' ? {
       backdropFilter: 'blur(10px)',
@@ -330,6 +410,7 @@ const styles = StyleSheet.create({
   logoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 0,
   },
   logoText: {
     fontSize: 18,
@@ -339,27 +420,53 @@ const styles = StyleSheet.create({
   rightSection: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 1,
+    minWidth: 0,
   },
   littiesContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: smallScale(12),
     paddingVertical: 8,
     borderRadius: 20,
-    marginRight: 12,
+    marginRight: smallScale(12),
+    flexShrink: 1,
+    minWidth: 0,
   },
   littiesText: {
     marginLeft: 6,
     fontSize: 14,
     fontWeight: '600',
+    flexShrink: 1,
+  },
+  bellContainer: {
+    width: smallScale(40),
+    height: smallScale(40),
+    borderRadius: smallScale(20),
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: smallScale(10),
+    flexShrink: 0,
+  },
+  bellDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: '#ef4444',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.25)',
   },
   avatarContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: smallScale(40),
+    height: smallScale(40),
+    borderRadius: smallScale(20),
     overflow: 'hidden',
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.3)',
+    flexShrink: 0,
   },
   avatarImage: {
     width: '100%',

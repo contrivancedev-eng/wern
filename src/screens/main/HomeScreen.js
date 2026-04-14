@@ -29,7 +29,7 @@ const HomeScreen = () => {
       >
         <Header />
 
-        <BannerCarousel data={bannerData} />
+        <BannerCarousel data={bannerData} onPress={() => navigation.navigate('Walk')} />
 
         <ProductCarousel data={productData} />
 

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WERN Admin - Notifications</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    .compose-layout { display: grid; grid-template-columns: 1fr 300px; gap: 0; margin-bottom: 20px; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); overflow: hidden; }
+    .compose-main { padding: 24px 28px; }
+    .compose-preview { background: #0F172A; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px 20px; position: relative; }
+    .compose-preview::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 30%, rgba(0,59,76,.3) 0%, transparent 70%); pointer-events: none; }
+
+    .compose-section { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
+    .compose-section:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+    .section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .section-num { width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+    .section-title { font-size: 13px; font-weight: 650; color: var(--text); }
+    .section-title span { font-weight: 400; color: var(--text-muted); margin-left: 4px; }
+
+    .audience-chip { display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; border: 1.5px solid var(--border); border-radius: 22px; font-size: 12px; font-weight: 500; color: var(--text-sec); cursor: pointer; transition: all .15s; background: var(--surface); user-select: none; }
+    .audience-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+    .audience-chip.selected { background: var(--primary); color: #fff; border-color: var(--primary); box-shadow: 0 2px 6px rgba(0,59,76,.15); }
+    .audience-chip svg { width: 13px; height: 13px; }
+    .audience-chip .chip-count { font-size: 10px; opacity: .65; }
+
+    .phone-wrap { position: relative; z-index: 1; }
+    .phone-frame { width: 240px; background: #1E293B; border-radius: 28px; padding: 10px; box-shadow: 0 4px 24px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.05); }
+    .phone-screen { background: #0F172A; border-radius: 20px; padding: 16px 14px; min-height: 220px; }
+    .phone-notch { width: 80px; height: 4px; background: #1E293B; border-radius: 2px; margin: 0 auto 12px; }
+    .phone-status { display: flex; justify-content: space-between; font-size: 9.5px; color: rgba(255,255,255,.35); margin-bottom: 14px; font-weight: 600; }
+    .phone-notif { background: rgba(255,255,255,.07); border-radius: 14px; padding: 14px; border: 1px solid rgba(255,255,255,.05); }
+    .phone-notif-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+    .phone-notif-icon { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, #003B4C, #0D9488); display: flex; align-items: center; justify-content: center; }
+    .phone-notif-icon img { width: 12px; height: 12px; filter: brightness(10); }
+    .phone-notif-app { font-size: 9px; color: rgba(255,255,255,.35); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+    .phone-notif-time { font-size: 9px; color: rgba(255,255,255,.25); margin-left: auto; }
+    .phone-notif-title { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 3px; min-height: 18px; }
+    .phone-notif-body { font-size: 11.5px; color: rgba(255,255,255,.45); line-height: 1.55; min-height: 36px; }
+    .phone-home { display: flex; justify-content: center; margin-top: 18px; }
+    .phone-home-bar { width: 80px; height: 4px; background: rgba(255,255,255,.15); border-radius: 2px; }
+    .preview-label { color: rgba(255,255,255,.3); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-bottom: 14px; position: relative; z-index: 1; }
+    .preview-hint { color: rgba(255,255,255,.25); font-size: 10.5px; margin-top: 12px; position: relative; z-index: 1; text-align: center; }
+
+    .template-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .template-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-xs); cursor: pointer; transition: all .15s; }
+    .template-card:hover { background: var(--bg); border-color: var(--border-strong); transform: translateY(-1px); }
+    .template-icon { width: 34px; height: 34px; border-radius: var(--radius-xs); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .template-icon svg { width: 15px; height: 15px; }
+    .template-info h5 { font-size: 12px; font-weight: 600; margin-bottom: 1px; }
+    .template-info p { font-size: 10.5px; color: var(--text-muted); margin: 0; }
+
+    .send-bar { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+    .send-bar-left { display: flex; align-items: center; gap: 10px; }
+    .send-bar-right { display: flex; align-items: center; gap: 8px; }
+
+    .inline-stats { display: flex; gap: 24px; padding: 14px 20px; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); margin-bottom: 20px; }
+    .inline-stat { display: flex; align-items: center; gap: 10px; }
+    .inline-stat-icon { width: 32px; height: 32px; border-radius: var(--radius-xs); display: flex; align-items: center; justify-content: center; }
+    .inline-stat-icon svg { width: 15px; height: 15px; }
+    .inline-stat-val { font-size: 16px; font-weight: 750; color: var(--text); }
+    .inline-stat-lbl { font-size: 11px; color: var(--text-muted); }
+
+    .hist-item { display: flex; align-items: center; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--border); }
+    .hist-item:last-child { border-bottom: none; }
+    .hist-icon { width: 34px; height: 34px; border-radius: var(--radius-xs); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .hist-icon svg { width: 15px; height: 15px; }
+    .hist-info { flex: 1; min-width: 0; }
+    .hist-title { font-size: 13px; font-weight: 600; margin-bottom: 1px; }
+    .hist-meta { font-size: 11px; color: var(--text-muted); }
+    .hist-stats { display: flex; gap: 16px; flex-shrink: 0; }
+    .hist-stat { text-align: center; }
+    .hist-stat-val { font-size: 13px; font-weight: 700; }
+    .hist-stat-lbl { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .3px; }
+
+    @media (max-width: 1024px) { .compose-layout { grid-template-columns: 1fr; } .compose-preview { padding: 24px; } .inline-stats { flex-wrap: wrap; gap: 16px; } }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><img src="img/logo.png" alt="WERN"><h2>WERN <span>Admin</span></h2></div>
+    <nav class="sidebar-nav">
+      <div class="nav-group"><div class="nav-label">Overview</div><a href="index.html" class="nav-item"><i data-lucide="layout-dashboard"></i> Dashboard</a><a href="analytics.html" class="nav-item"><i data-lucide="bar-chart-3"></i> Analytics</a></div>
+      <div class="nav-group"><div class="nav-label">Management</div><a href="users.html" class="nav-item"><i data-lucide="users"></i> Users</a><a href="notifications.html" class="nav-item active"><i data-lucide="bell"></i> Notifications</a><a href="transactions.html" class="nav-item"><i data-lucide="wallet"></i> Transactions</a><a href="referrals.html" class="nav-item"><i data-lucide="share-2"></i> Referrals</a></div>
+      <div class="nav-group"><div class="nav-label">Content</div><a href="causes.html" class="nav-item"><i data-lucide="heart"></i> Causes</a><a href="rewards.html" class="nav-item"><i data-lucide="gift"></i> Rewards</a><a href="content.html" class="nav-item"><i data-lucide="image"></i> Content</a></div>
+      <div class="nav-group"><div class="nav-label">System</div><a href="settings.html" class="nav-item"><i data-lucide="settings"></i> Settings</a></div>
+    </nav>
+    <div class="sidebar-footer"><a href="#" onclick="logout()" class="nav-item"><i data-lucide="log-out"></i> Logout</a></div>
+  </aside>
+
+  <div class="main">
+    <header class="header">
+      <div class="header-left"><button class="menu-toggle"><i data-lucide="menu" style="width:18px;height:18px;"></i></button><h1 class="page-title">Notifications</h1></div>
+      <div class="header-right"><div class="header-search"><i data-lucide="search"></i><input type="text" placeholder="Search..."></div><button class="icon-btn"><i data-lucide="bell" style="width:18px;height:18px;"></i><span class="dot"></span></button><div class="avatar-wrap"><div class="avatar" style="cursor:pointer;">A</div><div class="avatar-menu"><a href="settings.html"><i data-lucide="user"></i> Admin Profile</a><a href="settings.html"><i data-lucide="settings"></i> Settings</a><div class="divider"></div><button class="logout-item" onclick="logout()"><i data-lucide="log-out"></i> Logout</button></div></div></div>
+    </header>
+
+    <div class="content">
+      <!-- Inline Stats Bar -->
+      <div class="inline-stats">
+        <div class="inline-stat"><div class="inline-stat-icon" style="background:var(--blue-soft);color:var(--blue);"><i data-lucide="send"></i></div><div><div class="inline-stat-val">1,247</div><div class="inline-stat-lbl">Sent this month</div></div></div>
+        <div class="inline-stat"><div class="inline-stat-icon" style="background:var(--green-soft);color:var(--green);"><i data-lucide="check-check"></i></div><div><div class="inline-stat-val">89.2%</div><div class="inline-stat-lbl">Delivery rate</div></div></div>
+        <div class="inline-stat"><div class="inline-stat-icon" style="background:var(--primary-soft);color:var(--primary);"><i data-lucide="mouse-pointer-click"></i></div><div><div class="inline-stat-val">34.5%</div><div class="inline-stat-lbl">Open rate</div></div></div>
+        <div class="inline-stat"><div class="inline-stat-icon" style="background:var(--teal-soft);color:var(--teal);"><i data-lucide="users"></i></div><div><div class="inline-stat-val">2,341</div><div class="inline-stat-lbl">Opt-in users</div></div></div>
+      </div>
+
+      <!-- Compose - Hero Section -->
+      <div class="compose-layout">
+        <div class="compose-main">
+          <!-- 1. Audience -->
+          <div class="compose-section">
+            <div class="section-head"><div class="section-num">1</div><div class="section-title">Audience <span>Who should receive this?</span></div></div>
+            <div style="display:flex;flex-wrap:wrap;gap:7px;">
+              <label class="audience-chip selected" onclick="selectChip(this)"><i data-lucide="users"></i> All Users <span class="chip-count">(2,847)</span></label>
+              <label class="audience-chip" onclick="selectChip(this)"><i data-lucide="activity"></i> Active 7d <span class="chip-count">(1,423)</span></label>
+              <label class="audience-chip" onclick="selectChip(this)"><i data-lucide="moon"></i> Inactive <span class="chip-count">(856)</span></label>
+              <label class="audience-chip" onclick="selectChip(this)"><i data-lucide="footprints"></i> Walking Now <span class="chip-count">(342)</span></label>
+              <label class="audience-chip" onclick="selectChip(this)"><i data-lucide="tree-pine"></i> Forest <span class="chip-count">(892)</span></label>
+              <label class="audience-chip" onclick="selectChip(this)"><i data-lucide="droplets"></i> Water <span class="chip-count">(634)</span></label>
+              <label class="audience-chip" onclick="selectChip(this)"><i data-lucide="map-pin"></i> Dubai <span class="chip-count">(1,120)</span></label>
+              <label class="audience-chip" onclick="selectChip(this)"><i data-lucide="map-pin"></i> Abu Dhabi <span class="chip-count">(780)</span></label>
+              <label class="audience-chip" onclick="selectChip(this)"><i data-lucide="map-pin"></i> Sharjah <span class="chip-count">(540)</span></label>
+            </div>
+          </div>
+
+          <!-- 2. Content -->
+          <div class="compose-section">
+            <div class="section-head"><div class="section-num">2</div><div class="section-title">Content <span>What do you want to say?</span></div></div>
+            <div class="fg"><label class="fl">Title</label><input type="text" class="fi" id="notif-title" placeholder="e.g., Keep Walking! Your steps matter." oninput="updatePreview()" style="font-size:14px;font-weight:600;padding:11px 14px;"></div>
+            <div class="fg"><label class="fl">Message</label><textarea class="fta" id="notif-body" placeholder="Write your notification message here. Keep it short and engaging..." oninput="updatePreview()" style="min-height:90px;"></textarea></div>
+            <div class="fl" style="margin-bottom:6px;">Quick Templates</div>
+            <div class="template-grid">
+              <div class="template-card" onclick="useTemplate('Daily Reminder','Don\\'t forget to claim your daily reward! Keep your streak alive and earn more Litties.')"><div class="template-icon" style="background:var(--amber-soft);color:var(--amber);"><i data-lucide="clock"></i></div><div class="template-info"><h5>Daily Reminder</h5><p>Claim your reward</p></div></div>
+              <div class="template-card" onclick="useTemplate('Milestone Achieved!','Congratulations! You hit a new walking milestone. Keep up the amazing work!')"><div class="template-icon" style="background:var(--green-soft);color:var(--green);"><i data-lucide="trophy"></i></div><div class="template-info"><h5>Milestone</h5><p>Achievement alert</p></div></div>
+              <div class="template-card" onclick="useTemplate('Refer Friends & Earn','Share your referral code with friends and earn bonus Litties for every signup!')"><div class="template-icon" style="background:var(--blue-soft);color:var(--blue);"><i data-lucide="share-2"></i></div><div class="template-info"><h5>Referral Promo</h5><p>Invite & earn</p></div></div>
+              <div class="template-card" onclick="useTemplate('Weekend Challenge!','Double your Litties this weekend! Walk more, earn more. Challenge starts now.')"><div class="template-icon" style="background:var(--primary-soft);color:var(--primary);"><i data-lucide="zap"></i></div><div class="template-info"><h5>Weekend Challenge</h5><p>Double rewards</p></div></div>
+            </div>
+          </div>
+
+          <!-- 3. Schedule & Send -->
+          <div class="compose-section">
+            <div class="section-head"><div class="section-num">3</div><div class="section-title">Deliver <span>When and how?</span></div></div>
+            <div class="send-bar">
+              <div class="send-bar-left">
+                <select class="fsel" id="notif-schedule" style="width:170px;" onchange="document.getElementById('sched-dt').style.display=this.value==='later'?'inline-block':'none';">
+                  <option value="now">Send Immediately</option>
+                  <option value="later">Schedule Later</option>
+                </select>
+                <input type="datetime-local" class="fi" id="sched-dt" style="display:none;width:200px;">
+                <select class="fsel" style="width:140px;"><option>Normal Priority</option><option>High (with sound)</option></select>
+              </div>
+              <div class="send-bar-right">
+                <button class="btn btn-sec" onclick="showToast('Draft saved','info')"><i data-lucide="save" style="width:14px;height:14px;"></i> Save Draft</button>
+                <button class="btn btn-pri" onclick="doSend()" style="padding:10px 20px;font-size:13px;"><i data-lucide="send" style="width:15px;height:15px;"></i> Send Notification</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Preview Panel -->
+        <div class="compose-preview">
+          <div class="preview-label">Live Preview</div>
+          <div class="phone-wrap">
+            <div class="phone-frame">
+              <div class="phone-screen">
+                <div class="phone-notch"></div>
+                <div class="phone-status"><span>9:41</span><span>5G &nbsp; 100%</span></div>
+                <div class="phone-notif">
+                  <div class="phone-notif-head">
+                    <div class="phone-notif-icon"><img src="img/logo.png" alt="W"></div>
+                    <span class="phone-notif-app">WERN</span>
+                    <span class="phone-notif-time">now</span>
+                  </div>
+                  <div class="phone-notif-title" id="preview-title">Notification Title</div>
+                  <div class="phone-notif-body" id="preview-body">Your message will appear here exactly as users see it on their device.</div>
+                </div>
+                <div class="phone-home"><div class="phone-home-bar"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="preview-hint">Updates in real-time as you type</div>
+        </div>
+      </div>
+
+      <!-- Automation Rules -->
+      <div class="card mb-20">
+        <div class="card-head">
+          <div><h3>Automation Rules</h3><div class="sub">Auto-send notifications based on triggers</div></div>
+          <button class="btn btn-pri btn-sm" data-modal="rule-modal"><i data-lucide="plus" style="width:13px;height:13px;"></i> New Rule</button>
+        </div>
+        <div class="card-body" style="padding:4px 20px 12px;">
+          <div class="hist-item">
+            <div class="hist-icon" style="background:var(--green-soft);color:var(--green);"><i data-lucide="clock"></i></div>
+            <div class="hist-info">
+              <div class="hist-title">Daily Reward Reminder</div>
+              <div class="hist-meta">Every day at 6:00 PM &middot; Send to users who haven't claimed</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="badge active">Active</span>
+              <label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+            </div>
+          </div>
+          <div class="hist-item">
+            <div class="hist-icon" style="background:var(--amber-soft);color:var(--amber);"><i data-lucide="alert-triangle"></i></div>
+            <div class="hist-info">
+              <div class="hist-title">Inactivity Re-engagement</div>
+              <div class="hist-meta">When user is inactive for 3+ days &middot; "We miss your steps!"</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="badge active">Active</span>
+              <label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+            </div>
+          </div>
+          <div class="hist-item">
+            <div class="hist-icon" style="background:var(--teal-soft);color:var(--teal);"><i data-lucide="trophy"></i></div>
+            <div class="hist-info">
+              <div class="hist-title">Milestone Alert</div>
+              <div class="hist-meta">When user reaches 10K, 25K, 50K, 100K steps &middot; Congratulation message</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="badge active">Active</span>
+              <label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+            </div>
+          </div>
+          <div class="hist-item">
+            <div class="hist-icon" style="background:var(--blue-soft);color:var(--blue);"><i data-lucide="user-plus"></i></div>
+            <div class="hist-info">
+              <div class="hist-title">Welcome New User</div>
+              <div class="hist-meta">1 hour after signup &middot; "Start your first walk today!"</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="badge active">Active</span>
+              <label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+            </div>
+          </div>
+          <div class="hist-item">
+            <div class="hist-icon" style="background:var(--primary-soft);color:var(--primary);"><i data-lucide="repeat"></i></div>
+            <div class="hist-info">
+              <div class="hist-title">Weekly Summary</div>
+              <div class="hist-meta">Every Sunday at 9:00 AM &middot; "Your week in steps" recap</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="badge inactive">Paused</span>
+              <label class="toggle"><input type="checkbox"><span class="toggle-track"></span></label>
+            </div>
+          </div>
+          <div class="hist-item">
+            <div class="hist-icon" style="background:var(--red-soft);color:var(--red);"><i data-lucide="flame"></i></div>
+            <div class="hist-info">
+              <div class="hist-title">Streak Break Warning</div>
+              <div class="hist-meta">When daily claim streak is about to break &middot; "Don't lose your streak!"</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="badge active">Active</span>
+              <label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Analytics Row -->
+      <div class="g2" data-loading="1000">
+        <div class="skel-wrap"><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;"><div class="skel skel-chart"></div><div class="skel skel-chart"></div></div></div>
+        <div class="load-content">
+          <div class="card"><div class="card-head"><div><h3>Delivery Performance</h3><div class="sub">Last 30 days</div></div></div><div class="card-body"><div class="chart-wrap"><canvas id="perfChart"></canvas></div></div></div>
+          <div class="card"><div class="card-head"><div><h3>By Type</h3><div class="sub">Notification categories</div></div></div><div class="card-body"><div class="chart-wrap" style="height:180px;"><canvas id="typeChart"></canvas></div></div></div>
+        </div>
+      </div>
+
+      <!-- History -->
+      <div class="card">
+        <div class="card-head">
+          <div><h3>History</h3><div class="sub">All sent notifications</div></div>
+          <div class="filter-grp"><button class="filter-btn active" data-filter="all">All</button><button class="filter-btn" data-filter="sent">Sent</button><button class="filter-btn" data-filter="scheduled">Scheduled</button><button class="filter-btn" data-filter="draft">Drafts</button></div>
+        </div>
+        <div class="card-body" style="padding:4px 20px 12px;">
+          <div class="hist-item" data-cat="sent"><div class="hist-icon" style="background:var(--green-soft);color:var(--green);"><i data-lucide="check-circle"></i></div><div class="hist-info"><div class="hist-title">Weekend Walking Challenge</div><div class="hist-meta">All Users &middot; Apr 10, 9:00 AM</div></div><div class="hist-stats"><div class="hist-stat"><div class="hist-stat-val">2,341</div><div class="hist-stat-lbl">Sent</div></div><div class="hist-stat"><div class="hist-stat-val">2,102</div><div class="hist-stat-lbl">Delivered</div></div><div class="hist-stat"><div class="hist-stat-val">845</div><div class="hist-stat-lbl">Opened</div></div><div class="hist-stat"><div class="hist-stat-val" style="color:var(--green);">36%</div><div class="hist-stat-lbl">Rate</div></div></div></div>
+          <div class="hist-item" data-cat="sent"><div class="hist-icon" style="background:var(--green-soft);color:var(--green);"><i data-lucide="check-circle"></i></div><div class="hist-info"><div class="hist-title">Kids Walk for Labubu Launch</div><div class="hist-meta">Active Users &middot; Apr 8, 2:30 PM</div></div><div class="hist-stats"><div class="hist-stat"><div class="hist-stat-val">1,423</div><div class="hist-stat-lbl">Sent</div></div><div class="hist-stat"><div class="hist-stat-val">1,298</div><div class="hist-stat-lbl">Delivered</div></div><div class="hist-stat"><div class="hist-stat-val">612</div><div class="hist-stat-lbl">Opened</div></div><div class="hist-stat"><div class="hist-stat-val" style="color:var(--green);">43%</div><div class="hist-stat-lbl">Rate</div></div></div></div>
+          <div class="hist-item" data-cat="sent"><div class="hist-icon" style="background:var(--amber-soft);color:var(--amber);"><i data-lucide="clock"></i></div><div class="hist-info"><div class="hist-title">Daily Reward Reminder</div><div class="hist-meta">Inactive Users &middot; Apr 7, 6:00 PM</div></div><div class="hist-stats"><div class="hist-stat"><div class="hist-stat-val">856</div><div class="hist-stat-lbl">Sent</div></div><div class="hist-stat"><div class="hist-stat-val">743</div><div class="hist-stat-lbl">Delivered</div></div><div class="hist-stat"><div class="hist-stat-val">234</div><div class="hist-stat-lbl">Opened</div></div><div class="hist-stat"><div class="hist-stat-val" style="color:var(--amber);">27%</div><div class="hist-stat-lbl">Rate</div></div></div></div>
+          <div class="hist-item" data-cat="sent"><div class="hist-icon" style="background:var(--green-soft);color:var(--green);"><i data-lucide="check-circle"></i></div><div class="hist-info"><div class="hist-title">Forest Restoration 1M Milestone!</div><div class="hist-meta">Forest Walkers &middot; Apr 5, 11:00 AM</div></div><div class="hist-stats"><div class="hist-stat"><div class="hist-stat-val">534</div><div class="hist-stat-lbl">Sent</div></div><div class="hist-stat"><div class="hist-stat-val">489</div><div class="hist-stat-lbl">Delivered</div></div><div class="hist-stat"><div class="hist-stat-val">312</div><div class="hist-stat-lbl">Opened</div></div><div class="hist-stat"><div class="hist-stat-val" style="color:var(--green);">58%</div><div class="hist-stat-lbl">Rate</div></div></div></div>
+          <div class="hist-item" data-cat="scheduled"><div class="hist-icon" style="background:var(--blue-soft);color:var(--blue);"><i data-lucide="calendar"></i></div><div class="hist-info"><div class="hist-title">Ramadan Special - Double Litties</div><div class="hist-meta">Scheduled Apr 14, 8:00 AM &middot; All Users</div></div><div class="hist-stats"><div class="hist-stat"><div class="hist-stat-val">2,847</div><div class="hist-stat-lbl">Target</div></div><div class="hist-stat"><div class="hist-stat-val" style="color:var(--blue);">Pending</div><div class="hist-stat-lbl">Status</div></div></div></div>
+          <div class="hist-item" data-cat="draft"><div class="hist-icon" style="background:var(--bg);color:var(--text-muted);"><i data-lucide="file-text"></i></div><div class="hist-info"><div class="hist-title" style="color:var(--text-sec);">Summer Walk Challenge</div><div class="hist-meta">Draft &middot; Last edited Apr 3</div></div><div class="hist-stats"><button class="btn btn-sec btn-sm">Edit</button></div></div>
+        </div>
+        <div class="paging"><div class="paging-info">Showing 1-6 of 48</div><div class="paging-btns"><button class="pg-btn" disabled><i data-lucide="chevron-left" style="width:14px;height:14px;"></i></button><button class="pg-btn active">1</button><button class="pg-btn">2</button><button class="pg-btn">3</button><button class="pg-btn"><i data-lucide="chevron-right" style="width:14px;height:14px;"></i></button></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- New Rule Modal -->
+<div class="modal-bg" id="rule-modal"><div class="modal" style="max-width:520px;">
+  <div class="modal-head"><h3>Create Automation Rule</h3><button class="modal-close"><i data-lucide="x" style="width:16px;height:16px;"></i></button></div>
+  <div class="modal-body">
+    <div class="fg"><label class="fl">Rule Name</label><input type="text" class="fi" placeholder="e.g., Daily Reward Reminder"></div>
+    <div class="fg">
+      <label class="fl">Trigger Type</label>
+      <select class="fsel" id="rule-trigger" onchange="toggleTriggerOpts()">
+        <option value="schedule">Scheduled (timer)</option>
+        <option value="event">Event-based (user action)</option>
+      </select>
+    </div>
+    <div id="trigger-schedule">
+      <div class="frow">
+        <div class="fg"><label class="fl">Frequency</label><select class="fsel"><option>Daily</option><option>Weekly</option><option>Monthly</option><option>Once</option></select></div>
+        <div class="fg"><label class="fl">Time</label><input type="time" class="fi" value="18:00"></div>
+      </div>
+      <div class="fg"><label class="fl">Day(s)</label>
+        <div style="display:flex;gap:4px;">
+          <span class="audience-chip selected" onclick="this.classList.toggle('selected')" style="padding:4px 10px;font-size:11px;">Sun</span>
+          <span class="audience-chip selected" onclick="this.classList.toggle('selected')" style="padding:4px 10px;font-size:11px;">Mon</span>
+          <span class="audience-chip selected" onclick="this.classList.toggle('selected')" style="padding:4px 10px;font-size:11px;">Tue</span>
+          <span class="audience-chip selected" onclick="this.classList.toggle('selected')" style="padding:4px 10px;font-size:11px;">Wed</span>
+          <span class="audience-chip selected" onclick="this.classList.toggle('selected')" style="padding:4px 10px;font-size:11px;">Thu</span>
+          <span class="audience-chip selected" onclick="this.classList.toggle('selected')" style="padding:4px 10px;font-size:11px;">Fri</span>
+          <span class="audience-chip selected" onclick="this.classList.toggle('selected')" style="padding:4px 10px;font-size:11px;">Sat</span>
+        </div>
+      </div>
+    </div>
+    <div id="trigger-event" style="display:none;">
+      <div class="fg"><label class="fl">Event</label>
+        <select class="fsel">
+          <option>User inactive for X days</option>
+          <option>User reaches step milestone</option>
+          <option>User signup (after X hours)</option>
+          <option>Daily claim streak about to break</option>
+          <option>User completes daily goal</option>
+          <option>Referral signup</option>
+        </select>
+      </div>
+      <div class="fg"><label class="fl">Delay / Threshold</label><div class="frow"><input type="number" class="fi" placeholder="3" style="width:80px;"><select class="fsel" style="width:120px;"><option>days</option><option>hours</option><option>minutes</option><option>steps</option></select></div></div>
+    </div>
+    <div class="fg"><label class="fl">Audience Filter</label><select class="fsel"><option>All matching users</option><option>Active users only</option><option>Users who haven't been notified in 24h</option></select></div>
+    <div class="fg"><label class="fl">Notification Title</label><input type="text" class="fi" placeholder="Enter notification title"></div>
+    <div class="fg"><label class="fl">Notification Message</label><textarea class="fta" placeholder="Enter message body..." style="min-height:70px;"></textarea><div class="fhint">Use {name} for user name, {steps} for step count, {streak} for streak days</div></div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-sec btn-sm" data-dismiss>Cancel</button>
+    <button class="btn btn-pri btn-sm" onclick="showToast('Rule created and activated','success')"><i data-lucide="check" style="width:13px;height:13px;"></i> Create Rule</button>
+  </div>
+</div></div>
+
+<script>
+function toggleTriggerOpts() {
+  var v = document.getElementById('rule-trigger').value;
+  document.getElementById('trigger-schedule').style.display = v === 'schedule' ? '' : 'none';
+  document.getElementById('trigger-event').style.display = v === 'event' ? '' : 'none';
+}
+</script>
+
+<script src="js/app.js"></script>
+<script>
+  lucide.createIcons();
+
+  function selectChip(el) {
+    document.querySelectorAll('.audience-chip').forEach(function(c) { c.classList.remove('selected'); });
+    el.classList.add('selected');
+  }
+
+  function useTemplate(t, b) {
+    document.getElementById('notif-title').value = t;
+    document.getElementById('notif-body').value = b;
+    updatePreview();
+    // Scroll to title and flash it
+    var ti = document.getElementById('notif-title');
+    ti.focus();
+    ti.style.background = 'rgba(34,197,94,.06)';
+    setTimeout(function() { ti.style.background = ''; }, 800);
+  }
+
+  function updatePreview() {
+    document.getElementById('preview-title').textContent = document.getElementById('notif-title').value || 'Notification Title';
+    document.getElementById('preview-body').textContent = document.getElementById('notif-body').value || 'Your message will appear here exactly as users see it on their device.';
+  }
+
+  function doSend() {
+    var t = document.getElementById('notif-title').value, b = document.getElementById('notif-body').value;
+    if (!t || !b) { showToast('Please fill in both title and message', 'error'); return; }
+    var sel = document.querySelector('.audience-chip.selected');
+    showToast('Notification sent to ' + (sel ? sel.textContent.trim().split('(')[0].trim() : 'All Users') + '!', 'success');
+    document.getElementById('notif-title').value = '';
+    document.getElementById('notif-body').value = '';
+    updatePreview();
+  }
+
+  // Charts
+  document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(function() {
+      if (typeof Chart === 'undefined') return;
+      new Chart(document.getElementById('perfChart'), {
+        type: 'line',
+        data: { labels: Array.from({length:30}, function(_,i){return ''+(i+1);}), datasets: [
+          { label: 'Delivered', data: [120,95,88,85,110,105,95,130,118,140,115,122,125,135,128,150,120,138,160,145,152,155,170,148,165,180,168,175,190,185], borderColor: '#003B4C', backgroundColor: 'rgba(0,59,76,.04)', fill: true, tension: .4, borderWidth: 2, pointRadius: 0 },
+          { label: 'Opened', data: [42,38,35,32,44,40,38,52,45,56,46,48,48,54,50,62,48,55,68,58,60,62,65,56,64,72,65,68,76,72], borderColor: '#22C55E', backgroundColor: 'rgba(34,197,94,.04)', fill: true, tension: .4, borderWidth: 2, pointRadius: 0 }
+        ] },
+        options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ padding:12, usePointStyle:true, pointStyle:'circle', font:{size:11} } } }, scales:{ y:{ beginAtZero:true, grid:{color:'rgba(0,0,0,.04)'}, ticks:{font:{size:10},color:'#94A3B8'} }, x:{ grid:{display:false}, ticks:{font:{size:10},color:'#94A3B8',maxTicksLimit:10} } } }
+      });
+      new Chart(document.getElementById('typeChart'), {
+        type: 'doughnut',
+        data: { labels: ['Reminders','Milestones','Promos','Causes','System'], datasets: [{ data: [35,25,20,12,8], backgroundColor: ['#F59E0B','#22C55E','#003B4C','#0E7490','#94A3B8'], borderWidth: 0, spacing: 2 }] },
+        options: { responsive:true, maintainAspectRatio:false, cutout:'68%', plugins:{ legend:{ position:'bottom', labels:{ padding:10, usePointStyle:true, pointStyle:'circle', font:{size:10} } } } }
+      });
+    }, 700);
+  });
+</script>
+</body>
+</html>

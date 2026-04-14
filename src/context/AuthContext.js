@@ -194,6 +194,15 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Register the auto-logout with the shared fetch wrapper so expired
+  // tokens surfaced anywhere in the app drop the user to the login screen
+  // instead of leaving them in a broken state.
+  useEffect(() => {
+    // Lazy-require to avoid circular imports.
+    const { setLogoutHandler } = require('../utils/apiClient');
+    setLogoutHandler(() => logout());
+  }, []);
+
   const refreshUserDetails = async () => {
     if (token) {
       const result = await fetchUserDetails(token);

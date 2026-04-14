@@ -4,6 +4,7 @@ import Icon from './Icon';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useWeather } from '../context/WeatherContext';
+import { smallScale } from '../utils/responsive';
 
 const Header = () => {
   const { colors } = useTheme();

@@ -48,7 +48,7 @@ const DigitalVaultScreen = () => {
   const { token, refreshLitties, dataRefreshTrigger } = useAuth();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
 
-  const contactEmail = 'support@wern.app';
+  const contactEmail = 'technical@projectliberte.io';
 
   // Map earn_category_id to icon
   const getCategoryIcon = (categoryId) => {

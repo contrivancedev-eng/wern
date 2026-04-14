@@ -68,13 +68,14 @@ const ReferScreen = ({ onClose }) => {
   };
 
   // Generate referral link and message
+  const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.wern.app&hl=en_IN';
+
   const getReferralMessage = () => {
-    const appLink = `https://wern.app/invite/${referralCode}`;
-    return `Join me on WERN and start earning rewards by walking! Use my referral code: ${referralCode}\n\nDownload now: ${appLink}`;
+    return `Join me on WERN and start earning rewards by walking! Use my referral code: ${referralCode}\n\nDownload now: ${PLAY_STORE_URL}`;
   };
 
   const getReferralLink = () => {
-    return `https://wern.app/invite/${referralCode}`;
+    return PLAY_STORE_URL;
   };
 
   // Handle social media sharing

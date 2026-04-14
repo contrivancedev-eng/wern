@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WERN Admin - Settings</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><img src="img/logo.png" alt="WERN"><h2>WERN <span>Admin</span></h2></div>
+    <nav class="sidebar-nav">
+      <div class="nav-group"><div class="nav-label">Overview</div><a href="index.html" class="nav-item"><i data-lucide="layout-dashboard"></i> Dashboard</a><a href="analytics.html" class="nav-item"><i data-lucide="bar-chart-3"></i> Analytics</a></div>
+      <div class="nav-group"><div class="nav-label">Management</div><a href="users.html" class="nav-item"><i data-lucide="users"></i> Users</a><a href="notifications.html" class="nav-item"><i data-lucide="bell"></i> Notifications</a><a href="transactions.html" class="nav-item"><i data-lucide="wallet"></i> Transactions</a><a href="referrals.html" class="nav-item"><i data-lucide="share-2"></i> Referrals</a></div>
+      <div class="nav-group"><div class="nav-label">Content</div><a href="causes.html" class="nav-item"><i data-lucide="heart"></i> Causes</a><a href="rewards.html" class="nav-item"><i data-lucide="gift"></i> Rewards</a><a href="content.html" class="nav-item"><i data-lucide="image"></i> Content</a></div>
+      <div class="nav-group"><div class="nav-label">System</div><a href="settings.html" class="nav-item active"><i data-lucide="settings"></i> Settings</a></div>
+    </nav>
+    <div class="sidebar-footer"><a href="#" onclick="logout()" class="nav-item"><i data-lucide="log-out"></i> Logout</a></div>
+  </aside>
+
+  <div class="main">
+    <header class="header">
+      <div class="header-left"><button class="menu-toggle"><i data-lucide="menu" style="width:18px;height:18px;"></i></button><h1 class="page-title">Settings</h1></div>
+      <div class="header-right"><div class="header-search"><i data-lucide="search"></i><input type="text" placeholder="Search..."></div><button class="icon-btn"><i data-lucide="bell" style="width:18px;height:18px;"></i><span class="dot"></span></button><div class="avatar-wrap"><div class="avatar" style="cursor:pointer;">A</div><div class="avatar-menu"><a href="settings.html"><i data-lucide="user"></i> Admin Profile</a><a href="settings.html"><i data-lucide="settings"></i> Settings</a><div class="divider"></div><button class="logout-item" onclick="logout()"><i data-lucide="log-out"></i> Logout</button></div></div></div>
+    </header>
+
+    <div class="content">
+      <div class="g2">
+        <div>
+          <!-- General -->
+          <div class="card mb-24">
+            <div class="card-head"><div><h3>General</h3><div class="sub">App configuration</div></div></div>
+            <div class="card-body">
+              <div class="fg"><label class="fl">App Name</label><input type="text" class="fi" value="WERN"></div>
+              <div class="frow"><div class="fg"><label class="fl">Version</label><input type="text" class="fi" value="1.0.1" readonly></div><div class="fg"><label class="fl">Bundle ID</label><input type="text" class="fi" value="com.wern.app" readonly></div></div>
+            </div>
+            <div class="card-head"><div><h3>Walking</h3><div class="sub">Step tracking defaults</div></div></div>
+            <div class="card-body" style="padding:0 20px;">
+              <div class="set-row"><div class="set-info"><h5>Default Goal</h5><p>Steps for new users</p></div><input type="number" class="fi" value="10000" style="width:80px;text-align:center;"></div>
+              <div class="set-row"><div class="set-info"><h5>Min Goal</h5><p>Lowest allowed</p></div><input type="number" class="fi" value="1000" style="width:80px;text-align:center;"></div>
+              <div class="set-row"><div class="set-info"><h5>Stride (m)</h5><p>For distance calc</p></div><input type="number" class="fi" value="0.75" step="0.01" style="width:80px;text-align:center;"></div>
+              <div class="set-row"><div class="set-info"><h5>Cal/Step</h5><p>Calorie burn rate</p></div><input type="number" class="fi" value="0.05" step="0.01" style="width:80px;text-align:center;"></div>
+            </div>
+            <div style="padding:14px 20px;text-align:right;"><button class="btn btn-pri" onclick="saveSettings()"><i data-lucide="save" style="width:13px;height:13px;"></i> Save</button></div>
+          </div>
+        </div>
+
+        <div>
+          <!-- Notifications -->
+          <div class="card mb-24">
+            <div class="card-head"><div><h3>Notifications</h3><div class="sub">Push notification behavior</div></div></div>
+            <div class="card-body" style="padding:0 20px;">
+              <div class="set-row"><div class="set-info"><h5>Step Milestones</h5><p>Every 100 steps</p></div><label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label></div>
+              <div class="set-row"><div class="set-info"><h5>Daily Reminder</h5><p>Unclaimed rewards</p></div><label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label></div>
+              <div class="set-row"><div class="set-info"><h5>Inactivity Alert</h5><p>After 3 days inactive</p></div><label class="toggle"><input type="checkbox"><span class="toggle-track"></span></label></div>
+              <div class="set-row"><div class="set-info"><h5>Referral Notify</h5><p>When referral signs up</p></div><label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label></div>
+              <div class="set-row"><div class="set-info"><h5>Goal Complete</h5><p>Daily goal reached</p></div><label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label></div>
+            </div>
+          </div>
+
+          <!-- API -->
+          <div class="card mb-24">
+            <div class="card-head"><div><h3>API & Socket</h3><div class="sub">Server connections</div></div></div>
+            <div class="card-body">
+              <div class="fg"><label class="fl">API Base URL</label><input type="url" class="fi" value="https://www.videosdownloaders.com/firsttrackapi/api/" readonly><div class="fhint">Read-only</div></div>
+              <div class="fg"><label class="fl">Socket Server</label><input type="url" class="fi" value="https://videosdownloaders.com:3000" readonly></div>
+              <div class="fg"><label class="fl">Sync Interval</label><select class="fsel"><option>3s</option><option selected>5s</option><option>10s</option><option>15s</option></select></div>
+            </div>
+          </div>
+
+          <!-- Admin -->
+          <div class="card">
+            <div class="card-head"><div><h3>Admin Account</h3></div></div>
+            <div class="card-body">
+              <div class="fg"><label class="fl">Email</label><input type="email" class="fi" value="admin@wern.app"></div>
+              <div class="fg"><label class="fl">New Password</label><input type="password" class="fi" placeholder="Enter new password"></div>
+              <div class="fg"><label class="fl">Confirm Password</label><input type="password" class="fi" placeholder="Confirm"></div>
+              <div style="display:flex;gap:8px;justify-content:flex-end;"><button class="btn btn-sec" onclick="if(confirm('Reset all?'))showToast('Reset done','info')">Reset Defaults</button><button class="btn btn-pri" onclick="saveSettings()">Update</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Image, TextInput, Modal, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Image, TextInput, Modal, ActivityIndicator, KeyboardAvoidingView, Platform, Switch } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Icon, Toast } from '../../components';
-import { useTheme, useAuth } from '../../context';
+import { useTheme, useAuth, useWalking } from '../../context';
 import { fonts } from '../../utils';
 
 const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
@@ -27,12 +27,346 @@ const formatNumber = (num) => {
   return Math.round(n).toString();
 };
 
+// ─── Connected Devices Section ───────────────────────────────────
+const DevicesSection = ({
+  styles, isDarkMode, colors, devicesExpanded, setDevicesExpanded,
+  connectedWatch, isScanning, availableDevices, hasScanned,
+  syncSteps, setSyncSteps, syncHeartRate, setSyncHeartRate,
+  syncWalkControl, setSyncWalkControl,
+  handleScanForDevices, handleConnectDevice, handleDisconnect, handleManualConnect,
+  onCodeGenerated,
+}) => {
+  const [showManualCode, setShowManualCode] = React.useState(false);
+  const [pairingCode, setPairingCode] = React.useState('');
+  const [codeExpiry, setCodeExpiry] = React.useState(0);
+  const codeTimerRef = React.useRef(null);
+
+  const generateCode = React.useCallback(() => {
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    setPairingCode(code);
+    if (onCodeGenerated) onCodeGenerated(code);
+    setCodeExpiry(300); // 5 minutes
+    if (codeTimerRef.current) clearInterval(codeTimerRef.current);
+    codeTimerRef.current = setInterval(() => {
+      setCodeExpiry((prev) => {
+        if (prev <= 1) { clearInterval(codeTimerRef.current); setPairingCode(''); if (onCodeGenerated) onCodeGenerated(null); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  React.useEffect(() => {
+    if (showManualCode && !pairingCode) generateCode();
+    return () => { if (codeTimerRef.current) clearInterval(codeTimerRef.current); };
+  }, [showManualCode]);
+
+  const formatExpiry = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  const SyncToggle = ({ value, onToggle, label, icon, desc }) => (
+    <View style={styles.wSync}>
+      <View style={styles.wSyncLeft}>
+        <View style={[styles.wSyncIcon, { backgroundColor: value ? 'rgba(34,197,94,0.1)' : isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }]}>
+          <Icon name={icon} size={16} color={value ? '#22C55E' : (isDarkMode ? 'rgba(255,255,255,0.3)' : '#9CA3AF')} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.wSyncLabel}>{label}</Text>
+          <Text style={styles.wSyncDesc}>{desc}</Text>
+        </View>
+      </View>
+      <TouchableOpacity
+        style={[styles.wToggle, value && styles.wToggleOn]}
+        onPress={onToggle}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.wToggleThumb, value && styles.wToggleThumbOn]} />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderContent = () => {
+    if (!connectedWatch) {
+      return (
+        <View>
+          {/* Hero Empty State */}
+          <View style={styles.wEmptyHero}>
+            <View style={styles.wEmptyIconRing}>
+              <View style={styles.wEmptyIconInner}>
+                <Icon name="watch" size={28} color={isDarkMode ? 'rgba(255,255,255,0.6)' : '#003B4C'} />
+              </View>
+            </View>
+            <Text style={styles.wEmptyTitle}>Connect Your Watch</Text>
+            <Text style={styles.wEmptyDesc}>
+              Sync steps automatically, control walks, and see live stats right on your wrist.
+            </Text>
+          </View>
+
+          {/* Scan Button — green */}
+          <LinearGradient
+            colors={['#22C55E', '#16A34A']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.wScanGradient}
+          >
+            <TouchableOpacity
+              style={styles.wScanBtn}
+              onPress={handleScanForDevices}
+              disabled={isScanning}
+              activeOpacity={0.8}
+            >
+              {isScanning ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.wScanText}>Searching nearby...</Text>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Icon
+                    name={hasScanned ? 'refresh' : 'bluetooth'}
+                    size={18}
+                    color="#fff"
+                  />
+                  <Text style={styles.wScanText}>
+                    {hasScanned ? 'Scan Again' : 'Scan for Devices'}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </LinearGradient>
+
+          {/* Found Devices */}
+          {availableDevices.length > 0 && (
+            <View style={{ marginTop: 14 }}>
+              <Text style={styles.wFoundLabel}>Found {availableDevices.length} device{availableDevices.length > 1 ? 's' : ''}</Text>
+              {availableDevices.map((device, i) => (
+                <TouchableOpacity
+                  key={i}
+                  style={styles.wDeviceCard}
+                  onPress={() => handleConnectDevice(device)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.wDeviceCardIcon}>
+                    <Icon
+                      name={device.type === 'apple_watch' ? 'logo-apple' : 'watch'}
+                      size={22}
+                      color={isDarkMode ? '#fff' : '#003B4C'}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.wDeviceCardName}>{device.name}</Text>
+                    <Text style={styles.wDeviceCardType}>
+                      {device.type === 'apple_watch' ? 'Apple Watch' : 'Wear OS'}
+                    </Text>
+                  </View>
+                  <View style={styles.wPairBtn}>
+                    <Text style={styles.wPairBtnText}>Pair</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Empty state — scan completed but nothing found */}
+          {hasScanned && !isScanning && availableDevices.length === 0 && (
+            <View style={styles.wEmptyResults}>
+              <View style={styles.wEmptyIcon}>
+                <Icon
+                  name="search-outline"
+                  size={22}
+                  color={isDarkMode ? 'rgba(255,255,255,0.7)' : '#6B7280'}
+                />
+              </View>
+              <Text style={styles.wEmptyResultsTitle}>No devices found</Text>
+              <Text style={styles.wEmptyResultsHint}>
+                Make sure your watch is powered on, paired via the Wear OS / Galaxy Wearable app, and has WERN installed.
+              </Text>
+            </View>
+          )}
+
+          {/* Divider */}
+          <View style={styles.wDivider}>
+            <View style={styles.wDividerLine} />
+            <Text style={styles.wDividerText}>or</Text>
+            <View style={styles.wDividerLine} />
+          </View>
+
+          {/* Manual Connect */}
+          <TouchableOpacity
+            style={styles.wManualBtn}
+            onPress={() => setShowManualCode(!showManualCode)}
+            activeOpacity={0.7}
+          >
+            <Icon name="keypad" size={18} color={isDarkMode ? 'rgba(255,255,255,0.85)' : '#374151'} />
+            <Text style={styles.wManualText}>Enter pairing code manually</Text>
+            <Icon name={showManualCode ? 'chevron-up' : 'chevron-down'} size={14} color={isDarkMode ? 'rgba(255,255,255,0.5)' : '#6B7280'} />
+          </TouchableOpacity>
+
+          {/* Manual Code Display Section */}
+          {showManualCode && (
+            <View style={styles.wCodeSection}>
+              <Text style={styles.wCodeInstructions}>
+                Open WERN on your smartwatch and enter this code to pair.
+              </Text>
+              <View style={styles.wCodeDisplay}>
+                <Text style={styles.wCodeDigits}>{pairingCode || '--- ---'}</Text>
+              </View>
+              {codeExpiry > 0 ? (
+                <Text style={styles.wCodeExpiry}>Code expires in {formatExpiry(codeExpiry)}</Text>
+              ) : (
+                <Text style={[styles.wCodeExpiry, { color: '#EF4444' }]}>Code expired</Text>
+              )}
+              <TouchableOpacity
+                style={styles.wCodeRefresh}
+                onPress={generateCode}
+                activeOpacity={0.7}
+              >
+                <Icon name="refresh" size={14} color={isDarkMode ? 'rgba(255,255,255,0.6)' : '#6B7280'} />
+                <Text style={styles.wCodeRefreshText}>{codeExpiry > 0 ? 'Generate new code' : 'Get new code'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Supported Devices */}
+          <View style={styles.wSupported}>
+            <Text style={styles.wSupportedTitle}>Supported devices</Text>
+            <Text style={styles.wSupportedList}>Apple Watch 4+ {'\u2022'} Galaxy Watch 4+ {'\u2022'} Pixel Watch {'\u2022'} Wear OS 3+</Text>
+          </View>
+        </View>
+      );
+    }
+
+    // ─── Connected State ───
+    return (
+      <View>
+        {/* Device Card with gradient accent */}
+        <View style={styles.wConnectedCard}>
+          <LinearGradient
+            colors={['rgba(34,197,94,0.12)', 'rgba(34,197,94,0.02)']}
+            style={styles.wConnectedGradient}
+          >
+            <View style={styles.wConnectedTop}>
+              <View style={styles.wConnectedIcon}>
+                <Icon
+                  name={connectedWatch.type === 'apple_watch' ? 'logo-apple' : 'watch'}
+                  size={26}
+                  color="#22C55E"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.wConnectedName}>{connectedWatch.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                  <View style={styles.wPulseDot} />
+                  <Text style={styles.wConnectedStatusText}>Connected & syncing</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Quick Stats */}
+            <View style={styles.wStatsRow}>
+              <View style={styles.wStatItem}>
+                <Icon name="battery-charging" size={14} color="#22C55E" />
+                <Text style={styles.wStatVal}>{connectedWatch.battery != null ? connectedWatch.battery + '%' : '--'}</Text>
+                <Text style={styles.wStatLabel}>Battery</Text>
+              </View>
+              <View style={styles.wStatDivider} />
+              <View style={styles.wStatItem}>
+                <Icon name="wifi" size={14} color="#0D9488" />
+                <Text style={styles.wStatVal}>Strong</Text>
+                <Text style={styles.wStatLabel}>Signal</Text>
+              </View>
+              <View style={styles.wStatDivider} />
+              <View style={styles.wStatItem}>
+                <Icon name="sync" size={14} color="#F59E0B" />
+                <Text style={styles.wStatVal}>Now</Text>
+                <Text style={styles.wStatLabel}>Last sync</Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </View>
+
+        {/* Sync Preferences */}
+        <Text style={styles.wSectionLabel}>Sync Preferences</Text>
+        <View style={styles.wSyncGroup}>
+          <SyncToggle value={syncSteps} onToggle={() => setSyncSteps(!syncSteps)} label="Step counting" desc="Count steps from watch sensors" icon="footsteps" />
+          <SyncToggle value={syncHeartRate} onToggle={() => setSyncHeartRate(!syncHeartRate)} label="Heart rate" desc="Monitor during walks" icon="heart" />
+          <SyncToggle value={syncWalkControl} onToggle={() => setSyncWalkControl(!syncWalkControl)} label="Walk control" desc="Start & stop walks from watch" icon="play" />
+        </View>
+
+        {/* Disconnect */}
+        <TouchableOpacity
+          style={styles.wDisconnectBtn}
+          onPress={handleDisconnect}
+          activeOpacity={0.7}
+        >
+          <Icon name="close" size={14} color="#EF4444" />
+          <Text style={styles.wDisconnectText}>Disconnect device</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const header = (
+    <TouchableOpacity
+      style={styles.accordionHeader}
+      onPress={() => setDevicesExpanded(!devicesExpanded)}
+    >
+      <View style={styles.accordionHeaderLeft}>
+        <Icon name="watch" size={24} color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted} />
+        <Text style={styles.accordionTitle}>Connected Devices</Text>
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        {connectedWatch && <View style={styles.wPulseDot} />}
+        <Icon
+          name={devicesExpanded ? 'chevron-down' : 'arrow-forward'}
+          size={20}
+          color={isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted}
+        />
+      </View>
+    </TouchableOpacity>
+  );
+
+  return (
+    <View style={styles.accordionCard}>
+      {Platform.OS === 'ios' ? (
+        <BlurView intensity={15} tint="dark" style={styles.accordionBlur}>
+          {header}
+          {devicesExpanded && <View style={styles.accordionContent}>{renderContent()}</View>}
+        </BlurView>
+      ) : (
+        <View style={styles.accordionBlurAndroid}>
+          {header}
+          {devicesExpanded && <View style={styles.accordionContent}>{renderContent()}</View>}
+        </View>
+      )}
+    </View>
+  );
+};
+
 const ProfileScreen = () => {
   const { colors, isDarkMode } = useTheme();
   const { user, token, refreshUserDetails, triggerDataRefresh } = useAuth();
+  const { stepCount } = useWalking();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
   const [personalGoalExpanded, setPersonalGoalExpanded] = useState(false);
   const [accountSettingsExpanded, setAccountSettingsExpanded] = useState(false);
+  const [personalInfoExpanded, setPersonalInfoExpanded] = useState(false);
+  const [fullName, setFullName] = useState(user?.full_name || '');
+  const [nickname, setNickname] = useState(user?.nickname || '');
+  const [phoneNumber, setPhoneNumber] = useState(user?.phone_number || '');
+  const [isSavingPersonalInfo, setIsSavingPersonalInfo] = useState(false);
+
+  // Notification settings (5 toggles from the backend)
+  const [notificationsExpanded, setNotificationsExpanded] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState({
+    daily_goal_reminder: true,
+    achievement_notification: true,
+    weekly_progress_report: true,
+    tier_status_updates: true,
+    community_challenges: true,
+  });
   const [dailyStepGoal, setDailyStepGoal] = useState('8000');
   const [activityLevel, setActivityLevel] = useState('Intermediate');
   const [showActivityDropdown, setShowActivityDropdown] = useState(false);
@@ -61,6 +395,219 @@ const ProfileScreen = () => {
 
   // Historical goals state - maps date strings to goal values
   const [historicalGoals, setHistoricalGoals] = useState({});
+
+  // Connected Devices / Wearable state
+  const [devicesExpanded, setDevicesExpanded] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [availableDevices, setAvailableDevices] = useState([]);
+  const [hasScanned, setHasScanned] = useState(false);
+  const [connectedWatch, setConnectedWatch] = useState(null);
+  const [syncSteps, setSyncSteps] = useState(true);
+  const [syncHeartRate, setSyncHeartRate] = useState(true);
+  const [syncWalkControl, setSyncWalkControl] = useState(true);
+  const activePairingCode = useRef(null);
+
+  // Month navigation state
+  const [viewingDate, setViewingDate] = useState(new Date());
+
+  // Local daily step log
+  const [dailyStepLog, setDailyStepLog] = useState({});
+
+  // Per-day breakdown fetched from the server (survives reinstall).
+  // Shape: { "2026-04-13": { steps, kilometre, kcal, litres } }
+  const [apiMonthlyBreakdown, setApiMonthlyBreakdown] = useState({});
+
+  // Tracks the in-flight hourly breakdown request so we can abort it if
+  // the user taps another date before it finishes.
+  const hourlyAbortRef = useRef(null);
+
+  // Fetch the server's per-day breakdown for the month currently being
+  // viewed. Replaces the @wern_daily_step_log local cache so the calendar
+  // survives app reinstalls.
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const month = String(viewingDate.getMonth() + 1).padStart(2, '0');
+    const year = String(viewingDate.getFullYear());
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { apiFetch } = require('../../utils/apiClient');
+    (async () => {
+      try {
+        const { json } = await apiFetch(
+          `${API_URL}get-step-transection-list?token=${token}&filter=monthly&month=${month}&year=${year}`,
+          { headers: { Accept: 'application/json' } }
+        );
+        if (cancelled) return;
+        if (json?.status === true && Array.isArray(json?.data?.buckets)) {
+          const map = {};
+          json.data.buckets.forEach((b) => {
+            if (!b?.date) return;
+            const steps = Number(b.total_steps) || 0;
+            map[b.date] = {
+              steps,
+              kilometre: Number(b.total_km) || 0,
+              kcal: Number(b.total_kcal) || 0,
+              // New endpoint doesn't return litres — derive locally (2.5L per 10k).
+              litres: +(steps * 0.00025).toFixed(2),
+            };
+          });
+          setApiMonthlyBreakdown(map);
+        }
+      } catch (e) {
+        console.log('Monthly breakdown fetch failed:', e?.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token, viewingDate]);
+
+  // Load connected device & sync preferences from storage
+  useEffect(() => {
+    const loadDeviceState = async () => {
+      try {
+        const [watchData, syncPrefs] = await Promise.all([
+          AsyncStorage.getItem('wern_connected_watch'),
+          AsyncStorage.getItem('wern_sync_prefs'),
+        ]);
+        if (watchData) setConnectedWatch(JSON.parse(watchData));
+        if (syncPrefs) {
+          const prefs = JSON.parse(syncPrefs);
+          setSyncSteps(prefs.syncSteps ?? true);
+          setSyncHeartRate(prefs.syncHeartRate ?? true);
+          setSyncWalkControl(prefs.syncWalkControl ?? true);
+        }
+      } catch (e) {
+        console.log('[Devices] Failed to load state:', e);
+      }
+    };
+    loadDeviceState();
+  }, []);
+
+  // Persist sync preferences when they change
+  useEffect(() => {
+    if (connectedWatch) {
+      AsyncStorage.setItem('wern_sync_prefs', JSON.stringify({
+        syncSteps, syncHeartRate, syncWalkControl,
+      }));
+    }
+  }, [syncSteps, syncHeartRate, syncWalkControl, connectedWatch]);
+
+  // Listen for watch pairing code and auto-connect
+  useEffect(() => {
+    let unsubscribe;
+    try {
+      const WearableService = require('../../services/WearableService').default;
+      if (WearableService.isAvailable) {
+        unsubscribe = WearableService.onWatchData((data) => {
+          // Watch sent a pairing code - validate it
+          if (data.pairingCode && activePairingCode.current) {
+            const watchCode = data.pairingCode.replace(/\s/g, '');
+            const phoneCode = activePairingCode.current.replace(/\s/g, '');
+            if (watchCode === phoneCode) {
+              // Codes match - auto connect the watch
+              const watchInfo = {
+                name: data.deviceName || 'Smartwatch',
+                type: 'wearos',
+                id: 'paired-' + watchCode,
+                battery: data.battery || null,
+                connectedAt: new Date().toISOString(),
+              };
+              setConnectedWatch(watchInfo);
+              AsyncStorage.setItem('wern_connected_watch', JSON.stringify(watchInfo));
+              showToast('Watch paired successfully!', 'success');
+              // Send confirmation back
+              WearableService.validatePairingCode(watchCode);
+            }
+          }
+          // Watch sent step data during a walk
+          if (data.source === 'watch' && data.stepCount) {
+            // Steps from watch will be handled by WalkingContext
+            console.log('[Devices] Watch steps:', data.stepCount);
+          }
+        });
+      }
+    } catch (_) {}
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, []);
+
+  // Wearable handlers - real native module calls.
+  // The native `connectedNodes` call returns almost instantly (it's a
+  // cached lookup, not a live Bluetooth scan), so the spinner would flash
+  // too briefly to read. We enforce a minimum 1.8s scan duration to give
+  // clear visual feedback that something is happening.
+  const handleScanForDevices = async () => {
+    setIsScanning(true);
+    setAvailableDevices([]);
+    setHasScanned(false);
+
+    const MIN_SCAN_MS = 1800;
+    const startedAt = Date.now();
+    let devices = [];
+    try {
+      const WearableService = require('../../services/WearableService').default;
+      if (WearableService.isAvailable) {
+        devices = (await WearableService.scanForDevices()) || [];
+      }
+    } catch (e) {
+      console.log('[Devices] Scan error:', e);
+    }
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < MIN_SCAN_MS) {
+      await new Promise((resolve) => setTimeout(resolve, MIN_SCAN_MS - elapsed));
+    }
+
+    setAvailableDevices(devices);
+    setIsScanning(false);
+    setHasScanned(true);
+  };
+
+  const handleConnectDevice = async (device) => {
+    try {
+      const watchData = {
+        ...device,
+        battery: device.battery || null,
+        connectedAt: new Date().toISOString(),
+      };
+      setConnectedWatch(watchData);
+      setAvailableDevices([]);
+      await AsyncStorage.setItem('wern_connected_watch', JSON.stringify(watchData));
+
+      // Notify native module - establish connection and send initial state
+      try {
+        const WearableService = require('../../services/WearableService').default;
+        if (WearableService.isAvailable) {
+          await WearableService.connectDevice(device.id);
+          WearableService.syncToWatch({ isWalking: false, activeCause: 1, dailyGoal: 10000 });
+        }
+      } catch (_) {}
+
+      showToast(`${device.name} connected!`, 'success');
+    } catch (e) {
+      showToast('Failed to connect. Try again.', 'error');
+    }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      const WearableService = require('../../services/WearableService').default;
+      if (WearableService.isAvailable) {
+        WearableService.syncToWatch({ disconnect: true });
+        await WearableService.disconnectDevice();
+      }
+    } catch (_) {}
+
+    setConnectedWatch(null);
+    await AsyncStorage.removeItem('wern_connected_watch');
+    await AsyncStorage.removeItem('wern_sync_prefs');
+    setSyncSteps(true);
+    setSyncHeartRate(true);
+    setSyncWalkControl(true);
+    showToast('Device disconnected', 'success');
+  };
+
+  const handleManualConnect = () => {
+    // Manual connect is handled in the DevicesSection component via pairing code display
+  };
 
   // Scroll to input when focused
   const scrollToInput = (yOffset) => {
@@ -119,6 +666,18 @@ const ProfileScreen = () => {
       console.log('Error saving goal for date:', error.message);
     }
   }, [user]);
+
+  // Load daily step log from local storage
+  const loadDailyStepLog = useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem('@wern_daily_step_log');
+      if (stored) {
+        setDailyStepLog(JSON.parse(stored));
+      }
+    } catch (error) {
+      console.log('Error loading daily step log:', error.message);
+    }
+  }, []);
 
   // Fetch step transaction history
   const fetchTransactionHistory = useCallback(async () => {
@@ -301,11 +860,136 @@ const ProfileScreen = () => {
       fetchProfileData();
       fetchTransactionHistory();
       loadHistoricalGoals();
+      loadDailyStepLog();
       // Refresh user details from API to get fresh data (not from local storage)
       refreshUserDetails();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // Save today's live steps to daily step log whenever stepCount changes
+  useEffect(() => {
+    if (stepCount > 0) {
+      const today = new Date();
+      const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const km = ((stepCount * 0.75) / 1000).toFixed(2);
+      const kcalVal = Math.round(stepCount * 0.05);
+      const goal = parseInt(dailyStepGoal) || 8000;
+
+      // Throttle: only save if steps increased meaningfully
+      AsyncStorage.getItem('@wern_daily_step_log').then(stored => {
+        const log = stored ? JSON.parse(stored) : {};
+        const existing = log[dateKey]?.steps || 0;
+        if (stepCount > existing) {
+          log[dateKey] = { steps: stepCount, km: parseFloat(km), kcal: kcalVal, goal };
+          AsyncStorage.setItem('@wern_daily_step_log', JSON.stringify(log));
+          setDailyStepLog(log);
+        }
+      }).catch(() => {});
+    }
+  }, [stepCount, dailyStepGoal]);
+
+  // Keep personal info fields in sync with the auth user whenever
+  // it refreshes (e.g. after a successful update or token refresh).
+  useEffect(() => {
+    setFullName(user?.full_name || '');
+    setNickname(user?.nickname || '');
+    setPhoneNumber(user?.phone_number || '');
+  }, [user?.full_name, user?.nickname, user?.phone_number]);
+
+  // Save personal info via the update-user-image endpoint
+  // (backend was extended to accept full_name / nickname / phone_number
+  // in the same multipart request).
+  const savePersonalInfo = async () => {
+    if (!token) return;
+
+    const trimmedName = fullName.trim();
+    if (!trimmedName) {
+      showToast('Name cannot be empty.', 'warning');
+      return;
+    }
+
+    setIsSavingPersonalInfo(true);
+    try {
+      const formData = new FormData();
+      formData.append('token', token);
+      formData.append('full_name', trimmedName);
+      formData.append('nickname', nickname.trim());
+      formData.append('phone_number', phoneNumber.trim());
+
+      const response = await fetch(`${API_URL}update-user-image`, {
+        method: 'POST',
+        body: formData,
+        headers: { 'Accept': 'application/json' },
+      });
+      const data = await response.json();
+
+      if (data.status === true) {
+        await refreshUserDetails();
+        showToast('Profile updated successfully!', 'success');
+        setPersonalInfoExpanded(false);
+      } else {
+        showToast(data.message || 'Failed to update profile.');
+      }
+    } catch (error) {
+      console.log('Error saving personal info:', error.message);
+      showToast('Failed to update profile. Please try again.');
+    } finally {
+      setIsSavingPersonalInfo(false);
+    }
+  };
+
+  // Fetch notification settings once when the token becomes available.
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}get-notification-settings?token=${token}`, {
+          headers: { Accept: 'application/json' },
+        });
+        const json = await res.json();
+        if (!cancelled && json?.status === true && json?.data) {
+          setNotificationSettings({
+            daily_goal_reminder: !!json.data.daily_goal_reminder,
+            achievement_notification: !!json.data.achievement_notification,
+            weekly_progress_report: !!json.data.weekly_progress_report,
+            tier_status_updates: !!json.data.tier_status_updates,
+            community_challenges: !!json.data.community_challenges,
+          });
+        }
+      } catch (e) {
+        console.log('Error fetching notification settings:', e.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  // Flip a single toggle and send only that field to the server.
+  const toggleNotificationSetting = async (key) => {
+    if (!token) return;
+    const nextValue = !notificationSettings[key];
+    setNotificationSettings((prev) => ({ ...prev, [key]: nextValue }));
+    try {
+      const fd = new FormData();
+      fd.append('token', token);
+      fd.append(key, nextValue ? '1' : '0');
+      const res = await fetch(`${API_URL}update-notification-settings`, {
+        method: 'POST',
+        body: fd,
+        headers: { Accept: 'application/json' },
+      });
+      const json = await res.json();
+      if (json?.status !== true) {
+        // Revert on server failure
+        setNotificationSettings((prev) => ({ ...prev, [key]: !nextValue }));
+        showToast(json?.message || 'Failed to update notification settings.');
+      }
+    } catch (e) {
+      setNotificationSettings((prev) => ({ ...prev, [key]: !nextValue }));
+      showToast('Network error. Please try again.');
+    }
+  };
 
   // Upload image to API
   const uploadUserImage = async (imageAsset) => {
@@ -429,42 +1113,58 @@ const ProfileScreen = () => {
     }
   };
 
-  // Generate calendar data from monthly steps API
+  // Generate calendar data from local daily step log (with API fallback)
   const calendarData = useMemo(() => {
     const today = new Date();
-    const currentYear = today.getFullYear();
-    const currentMonth = today.getMonth();
+    const viewYear = viewingDate.getFullYear();
+    const viewMonth = viewingDate.getMonth();
+    const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
     const currentDay = today.getDate();
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
     const currentGoal = parseInt(dailyStepGoal) || 8000;
 
     const data = [];
     for (let day = 1; day <= daysInMonth; day++) {
-      // Format date key as YYYY-MM-DD
-      const dateKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const steps = monthlySteps[dateKey] || 0;
+      const dateKey = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-      // Use historical goal for that specific day, fallback to current goal
-      const goalSteps = historicalGoals[dateKey] || currentGoal;
+      // Priority: server monthly breakdown → server monthlySteps → local cache.
+      // For today we additionally merge in the live stepCount so the UI stays
+      // responsive between server syncs. This ordering means the calendar
+      // survives app reinstalls (server is the source of truth).
+      const apiEntry = apiMonthlyBreakdown[dateKey];
+      const localEntry = dailyStepLog[dateKey];
+      const isToday = isCurrentMonth && day === currentDay;
+      const apiSteps = apiEntry?.steps || 0;
+      const serverOrLocalSteps = apiSteps || monthlySteps[dateKey] || localEntry?.steps || 0;
+      const steps = isToday
+        ? Math.max(stepCount, serverOrLocalSteps)
+        : serverOrLocalSteps;
+
+      // Use goal from local log, then historical goals, then current goal
+      const goalSteps = localEntry?.goal || historicalGoals[dateKey] || currentGoal;
 
       let status;
-      if (day > currentDay) {
+      if (isCurrentMonth && day > currentDay) {
         status = 'upcoming';
-      } else if (day === currentDay) {
-        // Current day - show as "completed" if goal met, otherwise "current" (in progress)
+      } else if (isCurrentMonth && day === currentDay) {
         status = steps >= goalSteps ? 'completed' : 'current';
+      } else if (!isCurrentMonth && viewYear > today.getFullYear()) {
+        status = 'upcoming';
+      } else if (!isCurrentMonth && viewYear === today.getFullYear() && viewMonth > today.getMonth()) {
+        status = 'upcoming';
       } else if (steps >= goalSteps) {
-        // Past day - completed only if daily goal was achieved
         status = 'completed';
+      } else if (steps > 0) {
+        status = 'missed';
       } else {
-        // Past day - missed if goal was not achieved (even if some steps were recorded)
+        // No data at all for past days
         status = 'missed';
       }
 
       data.push({ day, status, steps, goalSteps });
     }
     return data;
-  }, [monthlySteps, dailyStepGoal, historicalGoals]);
+  }, [monthlySteps, dailyStepGoal, historicalGoals, dailyStepLog, apiMonthlyBreakdown, viewingDate, stepCount]);
 
   const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -500,20 +1200,33 @@ const ProfileScreen = () => {
     }
   };
 
-  // Get current month name (short and long)
-  const currentMonthShort = useMemo(() => {
-    const today = new Date();
-    return today.toLocaleDateString('en-US', { month: 'short' });
-  }, []);
+  // Get viewing month name (short and long)
+  const viewingMonthShort = useMemo(() => {
+    return viewingDate.toLocaleDateString('en-US', { month: 'short' });
+  }, [viewingDate]);
 
-  // Calculate streak count (consecutive completed days ending at today or last completed day)
+  const viewingMonthLong = useMemo(() => {
+    return viewingDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }, [viewingDate]);
+
+  const isCurrentMonth = useMemo(() => {
+    const today = new Date();
+    return viewingDate.getFullYear() === today.getFullYear() && viewingDate.getMonth() === today.getMonth();
+  }, [viewingDate]);
+
+  // Calculate streak count (consecutive completed days ending at today or last day of viewing month)
   const streakCount = useMemo(() => {
     const today = new Date();
-    const currentDay = today.getDate();
+    let lastDay;
+    if (isCurrentMonth) {
+      lastDay = today.getDate();
+    } else {
+      lastDay = new Date(viewingDate.getFullYear(), viewingDate.getMonth() + 1, 0).getDate();
+    }
     let streak = 0;
 
-    // Count from today backwards
-    for (let i = currentDay - 1; i >= 0; i--) {
+    // Count from last relevant day backwards
+    for (let i = lastDay - 1; i >= 0; i--) {
       const dayData = calendarData[i];
       if (dayData && dayData.status === 'completed') {
         streak++;
@@ -522,17 +1235,32 @@ const ProfileScreen = () => {
       }
     }
     return streak;
-  }, [calendarData]);
+  }, [calendarData, isCurrentMonth, viewingDate]);
+
+  // Month navigation handlers
+  const goToPreviousMonth = () => {
+    setViewingDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const goToNextMonth = () => {
+    const today = new Date();
+    const next = new Date(viewingDate.getFullYear(), viewingDate.getMonth() + 1, 1);
+    // Don't go beyond current month
+    if (next.getFullYear() < today.getFullYear() ||
+        (next.getFullYear() === today.getFullYear() && next.getMonth() <= today.getMonth())) {
+      setViewingDate(next);
+    }
+  };
 
   // Handle date click for details
   const handleDateClick = (day) => {
     if (!day || day.status === 'upcoming') return;
 
-    const today = new Date();
-    const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`;
+    const dateKey = `${viewingDate.getFullYear()}-${String(viewingDate.getMonth() + 1).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`;
     const dayData = transactionsByDate[dateKey];
 
-    // Calculate hourly data for this day
+    // Seed with whatever we can derive locally from transactions (shown
+    // immediately while the API response loads).
     const hourlySteps = Array(24).fill(0);
     if (dayData?.transactions) {
       dayData.transactions.forEach((transaction) => {
@@ -545,15 +1273,71 @@ const ProfileScreen = () => {
     }
     setSelectedDayHourlyData(hourlySteps);
 
+    // Fetch authoritative per-hour breakdown from the server. The response
+    // returns `breakdown[]` with entries like:
+    //   { "hour": "2025-12-19 13:00", "steps": 370, ... }
+    if (token) {
+      // Abort any earlier in-flight hourly request so rapid date taps
+      // don't cause an older response to overwrite a newer one.
+      if (hourlyAbortRef.current) hourlyAbortRef.current.abort();
+      const controller = new AbortController();
+      hourlyAbortRef.current = controller;
+
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { apiFetch } = require('../../utils/apiClient');
+      apiFetch(
+        `${API_URL}get-step-transection-list?token=${token}&filter=hourly&date=${dateKey}`,
+        { headers: { Accept: 'application/json' }, signal: controller.signal }
+      )
+        .then(({ json }) => {
+          if (json?.status !== true || !json?.data) return;
+          const hours = Array(24).fill(0);
+
+          if (Array.isArray(json.data.buckets)) {
+            json.data.buckets.forEach((b) => {
+              const h = Number(b?.hour);
+              if (Number.isFinite(h) && h >= 0 && h < 24) {
+                hours[h] = Number(b?.total_steps) || 0;
+              }
+            });
+          }
+
+          setSelectedDayHourlyData(hours);
+
+          // Only auto-scroll if there's actually activity that day.
+          const maxSteps = Math.max(...hours);
+          if (maxSteps > 0 && hourlyScrollRef.current) {
+            const peak = hours.indexOf(maxSteps);
+            const scrollPosition = Math.max(0, peak * 32 - 80);
+            hourlyScrollRef.current?.scrollTo({ x: scrollPosition, animated: true });
+          }
+        })
+        .catch((e) => {
+          if (e?.name !== 'AbortError') {
+            console.log('Hourly breakdown fetch failed:', e?.message);
+          }
+        });
+    }
+
+    // For today, calculate km/kcal from live steps
+    const today = new Date();
+    const isTodayDate = isCurrentMonth && day.day === today.getDate();
+    const liveSteps = day.steps;
+    const liveKm = (liveSteps * 0.75) / 1000;
+    const liveKcal = Math.round(liveSteps * 0.05);
+
     setSelectedDayDetails({
       date: dateKey,
       day: day.day,
-      month: today.toLocaleDateString('en-US', { month: 'long' }),
-      year: today.getFullYear(),
+      month: viewingDate.toLocaleDateString('en-US', { month: 'long' }),
+      year: viewingDate.getFullYear(),
       status: day.status,
-      steps: day.steps,
+      steps: liveSteps,
       goalSteps: day.goalSteps,
-      ...dayData,
+      totalSteps: isTodayDate ? liveSteps : (dayData?.totalSteps || liveSteps),
+      totalKm: isTodayDate ? liveKm : (dayData?.totalKm || liveKm),
+      totalKcal: isTodayDate ? liveKcal : (dayData?.totalKcal || liveKcal),
+      transactions: dayData?.transactions,
     });
     setShowDayDetailsModal(true);
 
@@ -591,9 +1375,8 @@ const ProfileScreen = () => {
     const weeks = [];
     let currentWeek = [];
 
-    // Calculate the start day of the current month (0 = Sunday, 6 = Saturday)
-    const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    // Calculate the start day of the viewing month (0 = Sunday, 6 = Saturday)
+    const firstDayOfMonth = new Date(viewingDate.getFullYear(), viewingDate.getMonth(), 1);
     const startDay = firstDayOfMonth.getDay();
 
     // Add empty cells for days before the 1st
@@ -657,8 +1440,14 @@ const ProfileScreen = () => {
         </View>
 
         {/* User Info */}
-        <Text style={styles.userName}>{user?.full_name || 'User'}</Text>
+        <Text style={styles.userName}>
+          {user?.full_name || 'User'}
+          {user?.nickname ? ` (${user.nickname})` : ''}
+        </Text>
         <Text style={styles.userEmail}>{user?.email || ''}</Text>
+        {user?.phone_number ? (
+          <Text style={styles.userEmail}>{user.phone_number}</Text>
+        ) : null}
 
         {/* Tier Card */}
         <View style={styles.tierCard}>
@@ -707,7 +1496,7 @@ const ProfileScreen = () => {
                 </View>
                 <View style={styles.streakTextContainer}>
                   <Text style={styles.streakNumber}>{streakCount}</Text>
-                  <Text style={styles.streakLabel}> Your {currentMonthShort} walking streak</Text>
+                  <Text style={styles.streakLabel}> Your {viewingMonthShort} walking streak</Text>
                 </View>
               </View>
               <TouchableOpacity
@@ -722,34 +1511,86 @@ const ProfileScreen = () => {
               </TouchableOpacity>
             </View>
 
-            {/* All-time Totals Summary */}
-            {transactionHistory?.totals && (
-              <View style={styles.totalsSummary}>
-                <View style={styles.totalItem}>
-                  <Icon name="footsteps" size={18} color="#22c55e" />
-                  <Text style={styles.totalValue}>
-                    {formatNumber(transactionHistory.totals.total_steps)}
-                  </Text>
-                  <Text style={styles.totalLabel}>Total Steps</Text>
+            {/* Monthly Totals Summary - calculated from local data + API + live steps */}
+            {(() => {
+              const today = new Date();
+              const viewYear = viewingDate.getFullYear();
+              const viewMonth = viewingDate.getMonth();
+              const isCurrMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
+              let totalSteps = 0;
+              let totalKm = 0;
+              let totalKcal = 0;
+              const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+              for (let d = 1; d <= daysInMonth; d++) {
+                const dk = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const isToday = isCurrMonth && d === today.getDate();
+                const apiEntry = apiMonthlyBreakdown[dk];
+                const localEntry = dailyStepLog[dk];
+
+                if (isToday) {
+                  // Live stepCount takes over for today (responsive updates).
+                  const daySteps = Math.max(
+                    stepCount,
+                    apiEntry?.steps || 0,
+                    localEntry?.steps || 0,
+                    monthlySteps[dk] || 0
+                  );
+                  totalSteps += daySteps;
+                  totalKm += (daySteps * 0.75) / 1000;
+                  totalKcal += Math.round(daySteps * 0.05);
+                } else if (apiEntry) {
+                  // Server breakdown is the source of truth for past days.
+                  totalSteps += apiEntry.steps || 0;
+                  totalKm += apiEntry.kilometre || 0;
+                  totalKcal += apiEntry.kcal || 0;
+                } else if (localEntry) {
+                  totalSteps += localEntry.steps || 0;
+                  totalKm += parseFloat(localEntry.km) || 0;
+                  totalKcal += localEntry.kcal || 0;
+                } else if (monthlySteps[dk]) {
+                  const s = monthlySteps[dk];
+                  totalSteps += s;
+                  totalKm += (s * 0.75) / 1000;
+                  totalKcal += Math.round(s * 0.05);
+                }
+              }
+              return (
+                <View style={styles.totalsSummary}>
+                  <View style={styles.totalItem}>
+                    <Icon name="footsteps" size={18} color="#22c55e" />
+                    <Text style={styles.totalValue}>{formatNumber(totalSteps)}</Text>
+                    <Text style={styles.totalLabel}>Total Steps</Text>
+                  </View>
+                  <View style={styles.totalDivider} />
+                  <View style={styles.totalItem}>
+                    <Icon name="walk" size={18} color="#3b82f6" />
+                    <Text style={styles.totalValue}>{totalKm.toFixed(2)}</Text>
+                    <Text style={styles.totalLabel}>Total Km</Text>
+                  </View>
+                  <View style={styles.totalDivider} />
+                  <View style={styles.totalItem}>
+                    <Icon name="flame" size={18} color="#f97316" />
+                    <Text style={styles.totalValue}>{formatNumber(totalKcal)}</Text>
+                    <Text style={styles.totalLabel}>Total Kcal</Text>
+                  </View>
                 </View>
-                <View style={styles.totalDivider} />
-                <View style={styles.totalItem}>
-                  <Icon name="walk" size={18} color="#3b82f6" />
-                  <Text style={styles.totalValue}>
-                    {transactionHistory.totals.total_km?.toFixed(2) || '0.00'}
-                  </Text>
-                  <Text style={styles.totalLabel}>Total Km</Text>
-                </View>
-                <View style={styles.totalDivider} />
-                <View style={styles.totalItem}>
-                  <Icon name="flame" size={18} color="#f97316" />
-                  <Text style={styles.totalValue}>
-                    {formatNumber(transactionHistory.totals.total_kcal)}
-                  </Text>
-                  <Text style={styles.totalLabel}>Total Kcal</Text>
-                </View>
-              </View>
-            )}
+              );
+            })()}
+
+            {/* Month Navigation */}
+            <View style={styles.monthNavigation}>
+              <TouchableOpacity onPress={goToPreviousMonth} style={styles.monthNavButton}>
+                <Icon name="arrow-back" size={22} color={isDarkMode ? '#FFFFFF' : colors.textWhite} />
+              </TouchableOpacity>
+              <Text style={styles.monthNavTitle}>{viewingMonthLong}</Text>
+              <TouchableOpacity
+                onPress={goToNextMonth}
+                style={[styles.monthNavButton, isCurrentMonth && styles.monthNavButtonDisabled]}
+                disabled={isCurrentMonth}
+              >
+                <Icon name="arrow-forward" size={22} color={isCurrentMonth ? 'rgba(255,255,255,0.2)' : (isDarkMode ? '#FFFFFF' : colors.textWhite)} />
+              </TouchableOpacity>
+            </View>
 
             {/* Calendar */}
             <View style={styles.calendar}>
@@ -810,6 +1651,178 @@ const ProfileScreen = () => {
           </BlurView>
         </View>
 
+        {/* Personal Information Accordion */}
+        {(() => {
+          const renderPersonalInfoContent = () => (
+            <View style={styles.accordionContent}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Full Name</Text>
+                <TextInput
+                  style={styles.input}
+                  value={fullName}
+                  onChangeText={setFullName}
+                  placeholder="Enter your name"
+                  placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
+                  onFocus={() => scrollToInput(600)}
+                  returnKeyType="next"
+                  maxLength={60}
+                  editable={true}
+                  underlineColorAndroid="transparent"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Nickname <Text style={styles.inputHint}>(optional)</Text></Text>
+                <TextInput
+                  style={styles.input}
+                  value={nickname}
+                  onChangeText={setNickname}
+                  placeholder="Enter a nickname"
+                  placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
+                  onFocus={() => scrollToInput(650)}
+                  returnKeyType="next"
+                  maxLength={40}
+                  editable={true}
+                  underlineColorAndroid="transparent"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Phone Number <Text style={styles.inputHint}>(optional)</Text></Text>
+                <TextInput
+                  style={styles.input}
+                  value={phoneNumber}
+                  onChangeText={(text) => setPhoneNumber(text.replace(/[^0-9+\-\s]/g, ''))}
+                  placeholder="e.g. +1 555 123 4567"
+                  placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
+                  keyboardType="phone-pad"
+                  onFocus={() => scrollToInput(700)}
+                  returnKeyType="done"
+                  maxLength={20}
+                  editable={true}
+                  underlineColorAndroid="transparent"
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.saveButton, isSavingPersonalInfo && styles.saveButtonDisabled]}
+                onPress={savePersonalInfo}
+                disabled={isSavingPersonalInfo}
+              >
+                {isSavingPersonalInfo ? (
+                  <ActivityIndicator size="small" color="#1a1a1a" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          );
+
+          const header = (
+            <TouchableOpacity
+              style={styles.accordionHeader}
+              onPress={() => setPersonalInfoExpanded(!personalInfoExpanded)}
+            >
+              <View style={styles.accordionHeaderLeft}>
+                <Icon
+                  name="person"
+                  size={24}
+                  color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
+                />
+                <Text style={styles.accordionTitle}>Personal Information</Text>
+              </View>
+              <Icon
+                name={personalInfoExpanded ? 'chevron-down' : 'arrow-forward'}
+                size={20}
+                color={isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted}
+              />
+            </TouchableOpacity>
+          );
+
+          return (
+            <View style={styles.accordionCard}>
+              {Platform.OS === 'ios' ? (
+                <BlurView intensity={15} tint="dark" style={styles.accordionBlur}>
+                  {header}
+                  {personalInfoExpanded && renderPersonalInfoContent()}
+                </BlurView>
+              ) : (
+                <View style={styles.accordionBlurAndroid}>
+                  {header}
+                  {personalInfoExpanded && renderPersonalInfoContent()}
+                </View>
+              )}
+            </View>
+          );
+        })()}
+
+        {/* Notification Settings Accordion */}
+        {(() => {
+          const rows = [
+            { key: 'daily_goal_reminder', label: 'Daily Goal Reminders' },
+            { key: 'achievement_notification', label: 'Achievement Notifications' },
+            { key: 'weekly_progress_report', label: 'Weekly Progress Report' },
+            { key: 'tier_status_updates', label: 'Tier Status Updates' },
+            { key: 'community_challenges', label: 'Community Challenges' },
+          ];
+
+          const renderNotificationContent = () => (
+            <View style={styles.accordionContent}>
+              {rows.map((row) => (
+                <View key={row.key} style={styles.toggleRow}>
+                  <Text style={styles.toggleLabel}>{row.label}</Text>
+                  <Switch
+                    value={!!notificationSettings[row.key]}
+                    onValueChange={() => toggleNotificationSetting(row.key)}
+                    trackColor={{
+                      false: isDarkMode ? 'rgba(255,255,255,0.2)' : '#D1D5DB',
+                      true: colors.accent,
+                    }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+              ))}
+            </View>
+          );
+
+          const header = (
+            <TouchableOpacity
+              style={styles.accordionHeader}
+              onPress={() => setNotificationsExpanded(!notificationsExpanded)}
+            >
+              <View style={styles.accordionHeaderLeft}>
+                <Icon
+                  name="notifications"
+                  size={24}
+                  color={isDarkMode ? 'rgba(255,255,255,0.7)' : colors.textMuted}
+                />
+                <Text style={styles.accordionTitle}>Notifications</Text>
+              </View>
+              <Icon
+                name={notificationsExpanded ? 'chevron-down' : 'arrow-forward'}
+                size={20}
+                color={isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted}
+              />
+            </TouchableOpacity>
+          );
+
+          return (
+            <View style={styles.accordionCard}>
+              {Platform.OS === 'ios' ? (
+                <BlurView intensity={15} tint="dark" style={styles.accordionBlur}>
+                  {header}
+                  {notificationsExpanded && renderNotificationContent()}
+                </BlurView>
+              ) : (
+                <View style={styles.accordionBlurAndroid}>
+                  {header}
+                  {notificationsExpanded && renderNotificationContent()}
+                </View>
+              )}
+            </View>
+          );
+        })()}
+
         {/* Personal Goal Accordion */}
         <View style={styles.accordionCard}>
           {Platform.OS === 'ios' ? (
@@ -842,7 +1855,7 @@ const ProfileScreen = () => {
                       value={dailyStepGoal}
                       onChangeText={(text) => setDailyStepGoal(text.replace(/[^0-9]/g, ''))}
                       placeholder="8000"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
                       keyboardType="numeric"
                       onFocus={() => scrollToInput(700)}
                       returnKeyType="done"
@@ -875,7 +1888,7 @@ const ProfileScreen = () => {
                       value={weeklyGoal}
                       onChangeText={(text) => setWeeklyGoal(text.replace(/[^0-9]/g, ''))}
                       placeholder="5"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
                       keyboardType="numeric"
                       onFocus={() => scrollToInput(800)}
                       returnKeyType="done"
@@ -930,7 +1943,7 @@ const ProfileScreen = () => {
                       value={dailyStepGoal}
                       onChangeText={(text) => setDailyStepGoal(text.replace(/[^0-9]/g, ''))}
                       placeholder="8000"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
                       keyboardType="numeric"
                       onFocus={() => scrollToInput(700)}
                       returnKeyType="done"
@@ -963,7 +1976,7 @@ const ProfileScreen = () => {
                       value={weeklyGoal}
                       onChangeText={(text) => setWeeklyGoal(text.replace(/[^0-9]/g, ''))}
                       placeholder="5"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
                       keyboardType="numeric"
                       onFocus={() => scrollToInput(800)}
                       returnKeyType="done"
@@ -1024,7 +2037,7 @@ const ProfileScreen = () => {
                       style={styles.input}
                       value={oldPassword}
                       onChangeText={setOldPassword}
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
                       secureTextEntry
                       onFocus={() => scrollToInput(900)}
                       returnKeyType="next"
@@ -1037,7 +2050,7 @@ const ProfileScreen = () => {
                       style={styles.input}
                       value={newPassword}
                       onChangeText={setNewPassword}
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
                       secureTextEntry
                       onFocus={() => scrollToInput(1000)}
                       returnKeyType="next"
@@ -1050,7 +2063,7 @@ const ProfileScreen = () => {
                       style={styles.input}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
                       secureTextEntry
                       onFocus={() => scrollToInput(1100)}
                       returnKeyType="done"
@@ -1102,7 +2115,7 @@ const ProfileScreen = () => {
                       style={styles.input}
                       value={oldPassword}
                       onChangeText={setOldPassword}
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
                       secureTextEntry
                       onFocus={() => scrollToInput(900)}
                       returnKeyType="next"
@@ -1115,7 +2128,7 @@ const ProfileScreen = () => {
                       style={styles.input}
                       value={newPassword}
                       onChangeText={setNewPassword}
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
                       secureTextEntry
                       onFocus={() => scrollToInput(1000)}
                       returnKeyType="next"
@@ -1128,7 +2141,7 @@ const ProfileScreen = () => {
                       style={styles.input}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(17,17,17,0.4)'}
                       secureTextEntry
                       onFocus={() => scrollToInput(1100)}
                       returnKeyType="done"
@@ -1151,6 +2164,30 @@ const ProfileScreen = () => {
             </View>
           )}
         </View>
+
+        {/* Connected Devices / Wearable Section */}
+        <DevicesSection
+          styles={styles}
+          isDarkMode={isDarkMode}
+          colors={colors}
+          devicesExpanded={devicesExpanded}
+          setDevicesExpanded={setDevicesExpanded}
+          connectedWatch={connectedWatch}
+          isScanning={isScanning}
+          availableDevices={availableDevices}
+          hasScanned={hasScanned}
+          syncSteps={syncSteps}
+          setSyncSteps={setSyncSteps}
+          syncHeartRate={syncHeartRate}
+          setSyncHeartRate={setSyncHeartRate}
+          syncWalkControl={syncWalkControl}
+          setSyncWalkControl={setSyncWalkControl}
+          handleScanForDevices={handleScanForDevices}
+          handleConnectDevice={handleConnectDevice}
+          handleDisconnect={handleDisconnect}
+          handleManualConnect={handleManualConnect}
+          onCodeGenerated={(code) => { activePairingCode.current = code; }}
+        />
 
         <View style={styles.bottomPadding} />
       </ScrollView>
@@ -1579,7 +2616,9 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   },
   tierDescription: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.8)',
+    // Tier card uses a dark bronze gradient in both themes, so the text
+    // must stay white in light mode too for readable contrast.
+    color: 'rgba(255, 255, 255, 0.85)',
     marginTop: 4,
     lineHeight: 16,
   },
@@ -1630,6 +2669,25 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   },
   helpButton: {
     padding: 4,
+  },
+  // Month Navigation
+  monthNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingHorizontal: 8,
+  },
+  monthNavButton: {
+    padding: 8,
+  },
+  monthNavButtonDisabled: {
+    opacity: 0.3,
+  },
+  monthNavTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textWhite,
   },
   // Calendar
   calendar: {
@@ -1769,7 +2827,7 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   },
   inputHint: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.5)',
+    color: isDarkMode ? 'rgba(255,255,255,0.5)' : colors.textMuted,
     fontWeight: '400',
   },
   input: {
@@ -1801,8 +2859,412 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   saveButtonDisabled: {
     opacity: 0.7,
   },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  toggleLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: isDarkMode ? 'rgba(255,255,255,0.9)' : colors.textMuted,
+    marginRight: 12,
+  },
   bottomPadding: {
     height: 150,
+  },
+  // ─── Connected Devices Styles ───
+  wEmptyHero: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginBottom: 18,
+  },
+  wEmptyIconRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    borderColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,59,76,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  wEmptyIconInner: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,59,76,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wEmptyTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: isDarkMode ? '#fff' : colors.text,
+    marginBottom: 6,
+  },
+  wEmptyDesc: {
+    fontSize: 13,
+    color: isDarkMode ? 'rgba(255,255,255,0.6)' : '#6B7280',
+    textAlign: 'center',
+    lineHeight: 19,
+    paddingHorizontal: 10,
+  },
+  wScanGradient: {
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  wScanBtn: {
+    paddingVertical: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wScanText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  wFoundLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: isDarkMode ? 'rgba(255,255,255,0.55)' : '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  wDeviceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.07)' : '#F9FAFB',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: isDarkMode ? 'rgba(255,255,255,0.12)' : '#E5E7EB',
+    marginBottom: 8,
+    gap: 12,
+  },
+  wDeviceCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,59,76,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wDeviceCardName: {
+    fontSize: 14,
+    fontWeight: '650',
+    color: isDarkMode ? '#fff' : colors.text,
+  },
+  wDeviceCardType: {
+    fontSize: 11.5,
+    color: isDarkMode ? 'rgba(255,255,255,0.55)' : '#9CA3AF',
+    marginTop: 1,
+  },
+  wPairBtn: {
+    backgroundColor: '#22C55E',
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  wPairBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  wDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    gap: 12,
+  },
+  wDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : '#E5E7EB',
+  },
+  wDividerText: {
+    fontSize: 12,
+    color: isDarkMode ? 'rgba(255,255,255,0.45)' : '#9CA3AF',
+    fontWeight: '500',
+  },
+  wManualBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: isDarkMode ? 'rgba(255,255,255,0.2)' : '#D1D5DB',
+    borderStyle: 'dashed',
+  },
+  wManualText: {
+    fontSize: 13,
+    color: isDarkMode ? 'rgba(255,255,255,0.85)' : '#374151',
+    fontWeight: '600',
+  },
+  wCodeSection: {
+    marginTop: 12,
+    marginHorizontal: 2,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#F9FAFB',
+    borderRadius: 14,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: isDarkMode ? 'rgba(255,255,255,0.12)' : '#E5E7EB',
+    alignItems: 'center',
+  },
+  wCodeInstructions: {
+    fontSize: 13,
+    color: isDarkMode ? 'rgba(255,255,255,0.8)' : '#4B5563',
+    lineHeight: 19,
+    marginBottom: 16,
+    textAlign: 'center',
+    paddingHorizontal: 8,
+  },
+  wEmptyResults: {
+    marginTop: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : '#F9FAFB',
+    borderWidth: 1,
+    borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : '#E5E7EB',
+  },
+  wEmptyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  wEmptyResultsTitle: {
+    marginTop: 2,
+    fontSize: 14,
+    fontWeight: '700',
+    color: isDarkMode ? '#fff' : colors.text,
+  },
+  wEmptyResultsHint: {
+    marginTop: 4,
+    fontSize: 12,
+    color: isDarkMode ? 'rgba(255,255,255,0.6)' : '#6B7280',
+    textAlign: 'center',
+    lineHeight: 17,
+    paddingHorizontal: 8,
+  },
+  wCodeDisplay: {
+    backgroundColor: isDarkMode ? 'rgba(0,59,76,0.15)' : 'rgba(0,59,76,0.06)',
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 32,
+    borderWidth: 1.5,
+    borderColor: isDarkMode ? 'rgba(0,59,76,0.25)' : 'rgba(0,59,76,0.1)',
+    borderStyle: 'dashed',
+  },
+  wCodeDigits: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: isDarkMode ? '#fff' : '#003B4C',
+    letterSpacing: 6,
+    textAlign: 'center',
+  },
+  wCodeExpiry: {
+    fontSize: 11,
+    color: isDarkMode ? 'rgba(255,255,255,0.5)' : '#9CA3AF',
+    marginTop: 12,
+  },
+  wCodeRefresh: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  wCodeRefreshText: {
+    fontSize: 12,
+    color: isDarkMode ? 'rgba(255,255,255,0.45)' : '#6B7280',
+    fontWeight: '500',
+  },
+  wSupported: {
+    marginTop: 18,
+    alignItems: 'center',
+  },
+  wSupportedTitle: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: isDarkMode ? 'rgba(255,255,255,0.2)' : '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  wSupportedList: {
+    fontSize: 11,
+    color: isDarkMode ? 'rgba(255,255,255,0.4)' : '#D1D5DB',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  // Connected state
+  wConnectedCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: isDarkMode ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.12)',
+  },
+  wConnectedGradient: {
+    padding: 18,
+  },
+  wConnectedTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 18,
+  },
+  wConnectedIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 15,
+    backgroundColor: isDarkMode ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wConnectedName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: isDarkMode ? '#fff' : colors.text,
+  },
+  wPulseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#22C55E',
+  },
+  wConnectedStatusText: {
+    fontSize: 12,
+    color: '#22C55E',
+    fontWeight: '600',
+  },
+  wStatsRow: {
+    flexDirection: 'row',
+    backgroundColor: isDarkMode ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.7)',
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+  },
+  wStatItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  wStatVal: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: isDarkMode ? '#fff' : colors.text,
+  },
+  wStatLabel: {
+    fontSize: 10,
+    color: isDarkMode ? 'rgba(255,255,255,0.55)' : '#9CA3AF',
+    fontWeight: '500',
+  },
+  wStatDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+  },
+  wSectionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: isDarkMode ? 'rgba(255,255,255,0.5)' : '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  wSyncGroup: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#F9FAFB',
+    borderWidth: 1,
+    borderColor: isDarkMode ? 'rgba(255,255,255,0.12)' : '#E5E7EB',
+  },
+  wSync: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+  },
+  wSyncLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    marginRight: 12,
+  },
+  wSyncIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wSyncLabel: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: isDarkMode ? 'rgba(255,255,255,0.8)' : colors.text,
+  },
+  wSyncDesc: {
+    fontSize: 11,
+    color: isDarkMode ? 'rgba(255,255,255,0.5)' : '#9CA3AF',
+    marginTop: 1,
+  },
+  wToggle: {
+    width: 46,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.18)' : '#D1D5DB',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  wToggleOn: {
+    backgroundColor: '#22C55E',
+  },
+  wToggleThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  wToggleThumbOn: {
+    alignSelf: 'flex-end',
+  },
+  wDisconnectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 18,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: isDarkMode ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.05)',
+  },
+  wDisconnectText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#EF4444',
   },
   // Dropdown styles
   dropdownButton: {

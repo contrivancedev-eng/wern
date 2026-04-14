@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, TopNavbar, GradientBackground } from '../components';
+import { smallScale } from '../utils/responsive';
 import { HomeScreen, WalkScreen, DigitalVaultScreen, ReferScreen, ProfileScreen } from '../screens/main';
 import { useWalking, useTheme, useAuth } from '../context';
 
@@ -113,6 +114,10 @@ const BottomTabNavigator = () => {
     tabNavigation?.navigate('Profile');
   }, [tabNavigation]);
 
+  const handleNotificationsPress = useCallback(() => {
+    navigation?.navigate('Notifications');
+  }, [navigation]);
+
   const handleLogout = useCallback(async () => {
     await logout();
     // Navigation will automatically switch to Auth due to isAuthenticated change
@@ -121,7 +126,13 @@ const BottomTabNavigator = () => {
   return (
     <GradientBackground showBlob={!shouldHideBlob}>
       <View style={styles.mainContainer}>
-        <TopNavbar onLittiesPress={handleLittiesPress} onReferPress={handleReferPress} onProfilePress={handleProfilePress} onLogout={handleLogout} />
+        <TopNavbar
+          onLittiesPress={handleLittiesPress}
+          onReferPress={handleReferPress}
+          onProfilePress={handleProfilePress}
+          onLogout={handleLogout}
+          onNotificationsPress={handleNotificationsPress}
+        />
         <View style={styles.contentContainer}>
           <Tab.Navigator
             tabBar={(props) => <CustomTabBar {...props} colors={colors} bottomInset={insets.bottom} />}
@@ -189,7 +200,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
-    paddingTop: 90,
+    paddingTop: smallScale(90),
     backgroundColor: 'transparent',
   },
   tabBarContainer: {

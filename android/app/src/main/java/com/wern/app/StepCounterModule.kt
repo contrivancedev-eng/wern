@@ -68,6 +68,16 @@ class StepCounterModule(reactContext: ReactApplicationContext) : ReactContextBas
     }
 
     @ReactMethod
+    fun resetForNewDay(promise: Promise) {
+        try {
+            StepCounterService.resetForNewDay()
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
     fun isRunning(promise: Promise) {
         try {
             promise.resolve(StepCounterService.isRunning)

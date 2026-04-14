@@ -27,6 +27,13 @@ export const onboardingFeatures = [
     description: 'Report issues and help keep your city safe',
     color: '#FF8C42',
   },
+  {
+    id: 5,
+    icon: 'watch',
+    title: 'Smart Watch Connect',
+    description: 'Track your walks from your wrist with Wear OS support',
+    color: '#8B5CF6',
+  },
 ];
 
 export const bannerData = [

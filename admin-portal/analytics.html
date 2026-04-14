@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WERN Admin - Analytics</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    .metric-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); }
+    .metric-row:last-child { border-bottom: none; }
+    .metric-label { font-size: 12.5px; color: var(--text-sec); }
+    .metric-val { font-size: 13px; font-weight: 700; color: var(--text); }
+    .cohort-row { display: flex; gap: 3px; margin-bottom: 3px; align-items: center; }
+    .cohort-label { width: 50px; font-size: 10px; font-weight: 600; color: var(--text-muted); text-align: right; padding-right: 6px; }
+    .cohort-cell { flex: 1; height: 26px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; color: #fff; }
+    .device-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .device-row:last-child { border-bottom: none; }
+    .device-icon { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; }
+    .device-icon svg { width: 15px; height: 15px; }
+    .device-info { flex: 1; }
+    .device-name { font-size: 12.5px; font-weight: 600; }
+    .device-pct { font-size: 11px; color: var(--text-muted); }
+    .device-val { font-size: 13px; font-weight: 700; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><img src="img/logo.png" alt="WERN"><h2>WERN <span>Admin</span></h2></div>
+    <nav class="sidebar-nav">
+      <div class="nav-group"><div class="nav-label">Overview</div><a href="index.html" class="nav-item"><i data-lucide="layout-dashboard"></i> Dashboard</a><a href="analytics.html" class="nav-item active"><i data-lucide="bar-chart-3"></i> Analytics</a></div>
+      <div class="nav-group"><div class="nav-label">Management</div><a href="users.html" class="nav-item"><i data-lucide="users"></i> Users</a><a href="notifications.html" class="nav-item"><i data-lucide="bell"></i> Notifications</a><a href="transactions.html" class="nav-item"><i data-lucide="wallet"></i> Transactions</a><a href="referrals.html" class="nav-item"><i data-lucide="share-2"></i> Referrals</a></div>
+      <div class="nav-group"><div class="nav-label">Content</div><a href="causes.html" class="nav-item"><i data-lucide="heart"></i> Causes</a><a href="rewards.html" class="nav-item"><i data-lucide="gift"></i> Rewards</a><a href="content.html" class="nav-item"><i data-lucide="image"></i> Content</a></div>
+      <div class="nav-group"><div class="nav-label">System</div><a href="settings.html" class="nav-item"><i data-lucide="settings"></i> Settings</a></div>
+    </nav>
+    <div class="sidebar-footer"><a href="#" onclick="logout()" class="nav-item"><i data-lucide="log-out"></i> Logout</a></div>
+  </aside>
+
+  <div class="main">
+    <header class="header">
+      <div class="header-left"><button class="menu-toggle"><i data-lucide="menu" style="width:18px;height:18px;"></i></button><h1 class="page-title">Analytics</h1></div>
+      <div class="header-right"><div class="header-search"><i data-lucide="search"></i><input type="text" placeholder="Search..."></div><button class="icon-btn"><i data-lucide="bell" style="width:18px;height:18px;"></i><span class="dot"></span></button><div class="avatar-wrap"><div class="avatar" style="cursor:pointer;">A</div><div class="avatar-menu"><a href="settings.html"><i data-lucide="user"></i> Admin Profile</a><a href="settings.html"><i data-lucide="settings"></i> Settings</a><div class="divider"></div><button class="logout-item" onclick="logout()"><i data-lucide="log-out"></i> Logout</button></div></div></div>
+    </header>
+
+    <div class="content">
+      <!-- Stats Row -->
+      <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
+        <div class="stat"><div class="stat-top"><div class="stat-icon primary"><i data-lucide="users"></i></div><span class="stat-badge up">+12%</span></div><div class="stat-val">2,847</div><div class="stat-lbl">Users</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon green"><i data-lucide="activity"></i></div></div><div class="stat-val">49.9%</div><div class="stat-lbl">DAU Rate</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon teal"><i data-lucide="footprints"></i></div></div><div class="stat-val">6,462</div><div class="stat-lbl">Avg Steps/User</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon amber"><i data-lucide="clock"></i></div></div><div class="stat-val">23m</div><div class="stat-lbl">Avg Session</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon blue"><i data-lucide="repeat"></i></div></div><div class="stat-val">72.1%</div><div class="stat-lbl">Retention (7d)</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon red"><i data-lucide="target"></i></div></div><div class="stat-val">34.2%</div><div class="stat-lbl">Goal Hit Rate</div></div>
+      </div>
+
+      <!-- DAU + Step Distribution -->
+      <div class="g2" data-loading="1000">
+        <div class="skel-wrap"><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;"><div class="skel skel-chart"></div><div class="skel skel-chart"></div></div></div>
+        <div class="load-content">
+          <div class="card"><div class="card-head"><div><h3>Daily Active Users</h3><div class="sub">Last 30 days</div></div></div><div class="card-body"><div class="chart-wrap"><canvas id="dauChart"></canvas></div></div></div>
+          <div class="card"><div class="card-head"><div><h3>Step Distribution</h3><div class="sub">Users by step range</div></div></div><div class="card-body"><div class="chart-wrap"><canvas id="distChart"></canvas></div></div></div>
+        </div>
+      </div>
+
+      <!-- Cohort Retention + Device Split -->
+      <div class="g2">
+        <div class="card">
+          <div class="card-head"><div><h3>Cohort Retention</h3><div class="sub">Weekly cohort % still active</div></div></div>
+          <div class="card-body" style="padding:14px 18px;">
+            <div style="display:flex;gap:3px;margin-bottom:6px;align-items:center;"><div style="width:50px;"></div><div style="flex:1;text-align:center;font-size:9px;font-weight:600;color:var(--text-muted);">W0</div><div style="flex:1;text-align:center;font-size:9px;font-weight:600;color:var(--text-muted);">W1</div><div style="flex:1;text-align:center;font-size:9px;font-weight:600;color:var(--text-muted);">W2</div><div style="flex:1;text-align:center;font-size:9px;font-weight:600;color:var(--text-muted);">W3</div><div style="flex:1;text-align:center;font-size:9px;font-weight:600;color:var(--text-muted);">W4</div><div style="flex:1;text-align:center;font-size:9px;font-weight:600;color:var(--text-muted);">W5</div><div style="flex:1;text-align:center;font-size:9px;font-weight:600;color:var(--text-muted);">W6</div></div>
+            <div class="cohort-row"><div class="cohort-label">Mar W1</div><div class="cohort-cell" style="background:var(--primary);">100%</div><div class="cohort-cell" style="background:rgba(0,59,76,.78);">78%</div><div class="cohort-cell" style="background:rgba(0,59,76,.65);">65%</div><div class="cohort-cell" style="background:rgba(0,59,76,.52);">52%</div><div class="cohort-cell" style="background:rgba(0,59,76,.44);">44%</div><div class="cohort-cell" style="background:rgba(0,59,76,.38);">38%</div><div class="cohort-cell" style="background:rgba(0,59,76,.34);">34%</div></div>
+            <div class="cohort-row"><div class="cohort-label">Mar W2</div><div class="cohort-cell" style="background:var(--primary);">100%</div><div class="cohort-cell" style="background:rgba(0,59,76,.82);">82%</div><div class="cohort-cell" style="background:rgba(0,59,76,.68);">68%</div><div class="cohort-cell" style="background:rgba(0,59,76,.55);">55%</div><div class="cohort-cell" style="background:rgba(0,59,76,.48);">48%</div><div class="cohort-cell" style="background:rgba(0,59,76,.42);">42%</div><div class="cohort-cell" style="background:rgba(0,59,76,.25);color:var(--text-sec);"></div></div>
+            <div class="cohort-row"><div class="cohort-label">Mar W3</div><div class="cohort-cell" style="background:var(--primary);">100%</div><div class="cohort-cell" style="background:rgba(0,59,76,.80);">80%</div><div class="cohort-cell" style="background:rgba(0,59,76,.70);">70%</div><div class="cohort-cell" style="background:rgba(0,59,76,.58);">58%</div><div class="cohort-cell" style="background:rgba(0,59,76,.50);">50%</div><div class="cohort-cell" style="background:rgba(0,59,76,.15);"></div><div class="cohort-cell" style="background:rgba(0,59,76,.15);"></div></div>
+            <div class="cohort-row"><div class="cohort-label">Mar W4</div><div class="cohort-cell" style="background:var(--primary);">100%</div><div class="cohort-cell" style="background:rgba(0,59,76,.85);">85%</div><div class="cohort-cell" style="background:rgba(0,59,76,.72);">72%</div><div class="cohort-cell" style="background:rgba(0,59,76,.60);">60%</div><div class="cohort-cell" style="background:rgba(0,59,76,.15);"></div><div class="cohort-cell" style="background:rgba(0,59,76,.15);"></div><div class="cohort-cell" style="background:rgba(0,59,76,.15);"></div></div>
+            <div class="cohort-row"><div class="cohort-label">Apr W1</div><div class="cohort-cell" style="background:var(--primary);">100%</div><div class="cohort-cell" style="background:rgba(0,59,76,.83);">83%</div><div class="cohort-cell" style="background:rgba(0,59,76,.71);">71%</div><div class="cohort-cell" style="background:rgba(0,59,76,.15);"></div><div class="cohort-cell" style="background:rgba(0,59,76,.15);"></div><div class="cohort-cell" style="background:rgba(0,59,76,.15);"></div><div class="cohort-cell" style="background:rgba(0,59,76,.15);"></div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div><h3>Device & Platform</h3><div class="sub">User device breakdown</div></div></div>
+          <div class="card-body" style="padding:14px 18px;">
+            <div class="device-row"><div class="device-icon" style="background:var(--primary-soft);color:var(--primary);"><i data-lucide="smartphone"></i></div><div class="device-info"><div class="device-name">Android</div><div class="device-pct">64% of users</div></div><div class="device-val">1,822</div></div>
+            <div class="device-row"><div class="device-icon" style="background:var(--blue-soft);color:var(--blue);"><i data-lucide="smartphone"></i></div><div class="device-info"><div class="device-name">iOS</div><div class="device-pct">36% of users</div></div><div class="device-val">1,025</div></div>
+            <div style="border-top:1px solid var(--border);margin:10px 0;"></div>
+            <div class="device-row"><div class="device-icon" style="background:var(--green-soft);color:var(--green);"><i data-lucide="battery-charging"></i></div><div class="device-info"><div class="device-name">Battery Optimized</div><div class="device-pct">Users who disabled optimization</div></div><div class="device-val">78%</div></div>
+            <div class="device-row"><div class="device-icon" style="background:var(--amber-soft);color:var(--amber);"><i data-lucide="map-pin"></i></div><div class="device-info"><div class="device-name">Location Always</div><div class="device-pct">Background location enabled</div></div><div class="device-val">62%</div></div>
+            <div class="device-row"><div class="device-icon" style="background:var(--teal-soft);color:var(--teal);"><i data-lucide="bell"></i></div><div class="device-info"><div class="device-name">Notifications On</div><div class="device-pct">Push notifications enabled</div></div><div class="device-val">89%</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity Levels + User Growth -->
+      <div class="g2" data-loading="1200">
+        <div class="skel-wrap"><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;"><div class="skel skel-chart"></div><div class="skel skel-chart"></div></div></div>
+        <div class="load-content">
+          <div class="card"><div class="card-head"><div><h3>User Growth</h3><div class="sub">Monthly registrations</div></div></div><div class="card-body"><div class="chart-wrap"><canvas id="growthChart"></canvas></div></div></div>
+          <div class="card"><div class="card-head"><div><h3>Activity Level Split</h3><div class="sub">By user setting</div></div></div><div class="card-body"><div class="chart-wrap" style="height:180px;"><canvas id="levelChart"></canvas></div></div></div>
+        </div>
+      </div>
+
+      <!-- Key Metrics Table -->
+      <div class="card">
+        <div class="card-head"><div><h3>Key Metrics</h3><div class="sub">Platform-wide performance</div></div><button class="btn btn-sec btn-sm" onclick="exportData()"><i data-lucide="download" style="width:13px;height:13px;"></i> Export</button></div>
+        <div style="overflow-x:auto;">
+          <table class="tbl">
+            <thead><tr><th>Metric</th><th>Today</th><th>This Week</th><th>This Month</th><th>All Time</th><th>Trend</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Total Steps</strong></td><td>18.4M</td><td>124.6M</td><td>487.2M</td><td>2.1B</td><td><span class="stat-badge up">+8.3%</span></td></tr>
+              <tr><td><strong>Distance (km)</strong></td><td>13,800</td><td>93,450</td><td>365,400</td><td>1.57M</td><td><span class="stat-badge up">+7.1%</span></td></tr>
+              <tr><td><strong>Calories Burned</strong></td><td>920K</td><td>6.23M</td><td>24.3M</td><td>105M</td><td><span class="stat-badge up">+8.3%</span></td></tr>
+              <tr><td><strong>Litties Distributed</strong></td><td>42.3K</td><td>284K</td><td>1.2M</td><td>4.8M</td><td><span class="stat-badge up">+15.2%</span></td></tr>
+              <tr><td><strong>Daily Claims</strong></td><td>847</td><td>5,640</td><td>22,890</td><td>89,450</td><td><span class="stat-badge up">+4.6%</span></td></tr>
+              <tr><td><strong>New Signups</strong></td><td>86</td><td>534</td><td>1,890</td><td>2,847</td><td><span class="stat-badge up">+23%</span></td></tr>
+              <tr><td><strong>Referral Signups</strong></td><td>24</td><td>156</td><td>612</td><td>1,423</td><td><span class="stat-badge up">+18.7%</span></td></tr>
+              <tr><td><strong>Avg Session Length</strong></td><td>23m</td><td>21m</td><td>22m</td><td>19m</td><td><span class="stat-badge up">+5.2%</span></td></tr>
+              <tr><td><strong>Churn Rate (30d)</strong></td><td colspan="3"></td><td>12.4%</td><td><span class="stat-badge down">-2.1%</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>
+  lucide.createIcons();
+  document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(function() {
+      if (typeof Chart === 'undefined') return;
+      var o = function() { return { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true,grid:{color:'rgba(0,0,0,.04)'},ticks:{font:{size:10},color:'#9CA3AF'}},x:{grid:{display:false},ticks:{font:{size:10},color:'#9CA3AF'}}} }; };
+
+      new Chart(document.getElementById('dauChart'), { type:'line', data:{ labels:Array.from({length:30},function(_,i){return ''+(i+1);}), datasets:[{data:[820,890,910,780,950,1020,1100,980,870,1050,1120,1180,1090,960,1200,1150,1280,1190,1050,1320,1380,1290,1150,1400,1350,1420,1300,1180,1423,1380],borderColor:'#003B4C',backgroundColor:'rgba(0,59,76,.05)',fill:true,tension:.4,borderWidth:2,pointRadius:0,pointHitRadius:8}]}, options:o() });
+
+      new Chart(document.getElementById('distChart'), { type:'bar', data:{ labels:['0-2K','2-5K','5-10K','10-20K','20-30K','30K+'], datasets:[{data:[180,420,580,390,210,67],backgroundColor:['rgba(0,59,76,.15)','rgba(0,59,76,.25)','rgba(0,59,76,.45)','rgba(0,59,76,.65)','rgba(0,59,76,.8)','#003B4C'],borderRadius:4,borderSkipped:false,barThickness:26}]}, options:o() });
+
+      new Chart(document.getElementById('growthChart'), { type:'bar', data:{ labels:['Nov','Dec','Jan','Feb','Mar','Apr'], datasets:[{label:'Organic',data:[80,110,140,180,260,220],backgroundColor:'#003B4C',borderRadius:4,borderSkipped:false,barThickness:18},{label:'Referral',data:[40,80,90,130,160,160],backgroundColor:'#22C55E',borderRadius:4,borderSkipped:false,barThickness:18}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{padding:12,usePointStyle:true,pointStyle:'circle',font:{size:11}}}},scales:{y:{beginAtZero:true,stacked:true,grid:{color:'rgba(0,0,0,.04)'},ticks:{font:{size:10},color:'#9CA3AF'}},x:{stacked:true,grid:{display:false},ticks:{font:{size:10},color:'#9CA3AF'}}}} });
+
+      new Chart(document.getElementById('levelChart'), { type:'doughnut', data:{ labels:['Beginner','Intermediate','Advanced'], datasets:[{data:[45,38,17],backgroundColor:['#0E7490','#003B4C','#22C55E'],borderWidth:0,spacing:2}]}, options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{position:'bottom',labels:{padding:12,usePointStyle:true,pointStyle:'circle',font:{size:11}}}}} });
+    }, 700);
+  });
+</script>
+</body>
+</html>

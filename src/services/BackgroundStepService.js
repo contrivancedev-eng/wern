@@ -147,6 +147,28 @@ export const getCurrentStepCount = async () => {
   }
 };
 
+// Reset in-memory counters at midnight so stepDelta calculation
+// doesn't stay anchored to yesterday's final count.
+export const resetForNewDay = async () => {
+  currentStepCount = 0;
+  lastRecordedSteps = 0;
+
+  if (Platform.OS === 'android' && StepCounterModule) {
+    try {
+      // Prefer the dedicated reset method (also clears sensor baseline
+      // and refreshes the notification). Fall back to updateSteps for
+      // older builds that don't expose resetForNewDay yet.
+      if (typeof StepCounterModule.resetForNewDay === 'function') {
+        await StepCounterModule.resetForNewDay();
+      } else {
+        await StepCounterModule.updateSteps(0);
+      }
+    } catch (error) {
+      // Silent fail
+    }
+  }
+};
+
 // Stop background tracking
 export const stopBackgroundStepTracking = async () => {
   if (Platform.OS === 'web') return;
@@ -199,4 +221,5 @@ export default {
   updateForegroundNotification,
   syncStepsFromBackground,
   getCurrentStepCount,
+  resetForNewDay,
 };

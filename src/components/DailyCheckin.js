@@ -6,6 +6,7 @@ import LinearGradient from './LinearGradient';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { smallScale } from '../utils/responsive';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
@@ -20,7 +21,7 @@ const WavyBorder = ({ style }) => (
 );
 
 const CalendarIcon = () => (
-  <Svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+  <Svg width={smallScale(28)} height={smallScale(28)} viewBox="0 0 24 24" fill="none">
     <Path
       d="M8 2v3M16 2v3M3.5 9.09h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z"
       stroke="#f97316"
@@ -39,14 +40,14 @@ const CalendarIcon = () => (
 );
 
 const ClockIcon = () => (
-  <Svg width="28" height="28" viewBox="0 0 28 28">
+  <Svg width={smallScale(28)} height={smallScale(28)} viewBox="0 0 28 28">
     <Circle cx="14" cy="14" r="12" fill="none" stroke="#00ff5e" strokeWidth="2.5" />
     <Path d="M14,7 v8 l5,3" stroke="#00ff5e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
   </Svg>
 );
 
 const GradientCircle = () => (
-  <Svg width="36" height="36" viewBox="0 0 36 36">
+  <Svg width={smallScale(36)} height={smallScale(36)} viewBox="0 0 36 36">
     <Defs>
       <SvgLinearGradient id="orangeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
         <Stop offset="0%" stopColor="#f59e0b" />
@@ -387,7 +388,7 @@ const DailyCheckin = ({ onClaim }) => {
           <View style={styles.overlay}>
             <Text style={styles.promoTitle}>Win a Yacht Trip Gift Card!</Text>
             <Text style={styles.promoSubtitle}>
-              Claim Daily Rewards in the next 7 days and{'\n'}earn an entry into Prize Draw each day!
+              Claim Daily Rewards in the next 7 days and earn an entry into Prize Draw each day!
             </Text>
           </View>
         </ImageBackground>
@@ -575,22 +576,22 @@ const createStyles = (colors) => StyleSheet.create({
   },
   bottomSection: {
     backgroundColor: 'rgba(99, 177, 195, 0.46)',
-    paddingHorizontal: 12,
+    paddingHorizontal: smallScale(12),
     paddingTop: 4,
-    paddingBottom: 16,
+    paddingBottom: smallScale(16),
   },
   checkinRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: smallScale(14),
   },
   checkinLabel: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   checkinTextContainer: {
-    marginLeft: 6,
+    marginLeft: smallScale(6),
   },
   checkinText: {
     color: '#FFFFFF',
@@ -608,7 +609,7 @@ const createStyles = (colors) => StyleSheet.create({
     alignItems: 'center',
   },
   timeTextContainer: {
-    marginLeft: 6,
+    marginLeft: smallScale(6),
   },
   timeLabel: {
     color: 'rgba(255, 255, 255, 0.7)',
@@ -622,8 +623,8 @@ const createStyles = (colors) => StyleSheet.create({
     lineHeight: 18,
   },
   claimButton: {
-    paddingHorizontal: 22,
-    paddingVertical: 10,
+    paddingHorizontal: smallScale(22),
+    paddingVertical: smallScale(10),
     borderRadius: 20,
   },
   claimText: {
@@ -640,9 +641,9 @@ const createStyles = (colors) => StyleSheet.create({
     alignItems: 'center',
   },
   dayCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: smallScale(36),
+    height: smallScale(36),
+    borderRadius: smallScale(18),
     backgroundColor: '#3D8A95',
     justifyContent: 'center',
     alignItems: 'center',
@@ -652,8 +653,8 @@ const createStyles = (colors) => StyleSheet.create({
     backgroundColor: '#10b981',
   },
   gradientCircleWrapper: {
-    width: 36,
-    height: 36,
+    width: smallScale(36),
+    height: smallScale(36),
     marginBottom: 4,
   },
   gradientCircleContent: {

@@ -2,7 +2,7 @@
   "expo": {
     "name": "WERN",
     "slug": "wern-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assest/img/wern-logo.png",
     "userInterfaceStyle": "automatic",

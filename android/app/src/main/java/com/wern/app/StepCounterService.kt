@@ -30,6 +30,16 @@ class StepCounterService : Service(), SensorEventListener {
         var initialStepCount = -1 // First sensor reading
 
         fun startService(context: Context, initialSteps: Int, goal: Int) {
+            // If the service is already running (e.g. user swiped the app
+            // from recents but the foreground service kept counting),
+            // preserve the higher step total instead of clobbering it with
+            // the stale value the JS side loaded from AsyncStorage.
+            if (isRunning && currentSteps >= initialSteps) {
+                goalSteps = goal
+                instance?.updateNotification()
+                return
+            }
+
             currentSteps = initialSteps
             goalSteps = goal
             sessionStartSteps = initialSteps
@@ -50,7 +60,22 @@ class StepCounterService : Service(), SensorEventListener {
 
         fun updateSteps(steps: Int) {
             currentSteps = steps
+            instance?.updateNotification()
         }
+
+        // Called at midnight (or on explicit reset). Clears the session
+        // baseline so the next TYPE_STEP_COUNTER event re-baselines from 0
+        // — otherwise `totalDeviceSteps - initialStepCount` would re-add
+        // yesterday's delta into today's count.
+        fun resetForNewDay() {
+            currentSteps = 0
+            sessionStartSteps = 0
+            initialStepCount = -1
+            instance?.updateNotification()
+        }
+
+        @Volatile
+        private var instance: StepCounterService? = null
     }
 
     private var sensorManager: SensorManager? = null
@@ -59,6 +84,7 @@ class StepCounterService : Service(), SensorEventListener {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service created")
+        instance = this
 
         createNotificationChannel()
 
@@ -98,6 +124,20 @@ class StepCounterService : Service(), SensorEventListener {
         Log.d(TAG, "Service destroyed")
         isRunning = false
         sensorManager?.unregisterListener(this)
+        if (instance === this) instance = null
+    }
+
+    // Stop counting when the user swipes the app out of the recents list.
+    // Without this, the foreground service and its step-counter notification
+    // would keep running forever in the background, diverging from the JS
+    // state (which resets) and wasting battery.
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.d(TAG, "Task removed — stopping step counter service")
+        isRunning = false
+        sensorManager?.unregisterListener(this)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

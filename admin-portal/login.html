@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WERN Admin - Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --primary: #003B4C; --bg: #F0F2F5; --border: rgba(0,0,0,0.08); --text: #0F172A; --text-sec: #475569; --text-muted: #94A3B8; --green: #22C55E; --red: #EF4444; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', -apple-system, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); -webkit-font-smoothing: antialiased; font-size: 13.5px; }
+    .login-wrap { width: 100%; max-width: 370px; padding: 20px; }
+    .logo { text-align: center; margin-bottom: 28px; }
+    .logo img { height: 44px; margin-bottom: 10px; }
+    .logo h1 { font-size: 18px; font-weight: 800; color: var(--primary); letter-spacing: -.2px; }
+    .logo p { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+    .card { background: #fff; border-radius: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03); border: 1px solid var(--border); padding: 26px 24px; }
+    .fg { margin-bottom: 16px; }
+    .fl { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-sec); margin-bottom: 5px; }
+    .input-wrap { position: relative; display: flex; align-items: center; }
+    .input-wrap > svg:first-child { position: absolute; left: 12px; width: 15px; height: 15px; color: var(--text-muted); pointer-events: none; z-index: 1; }
+    .input-wrap input { width: 100%; padding: 10px 12px 10px 36px; border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; font-size: 13px; color: var(--text); outline: none; transition: all .15s; background: var(--bg); font-family: inherit; }
+    .input-wrap input:focus { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px rgba(0,59,76,0.06); }
+    .input-wrap input::placeholder { color: var(--text-muted); }
+    .input-wrap .eye-btn { position: absolute; right: 8px; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; display: flex; }
+    .input-wrap .eye-btn svg { width: 15px; height: 15px; }
+    .options { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; font-size: 12px; }
+    .remember { display: flex; align-items: center; gap: 5px; color: var(--text-sec); cursor: pointer; }
+    .remember input { accent-color: var(--primary); width: 14px; height: 14px; }
+    .forgot { color: var(--primary); font-weight: 500; text-decoration: none; }
+    .forgot:hover { text-decoration: underline; }
+    .login-btn { width: 100%; padding: 11px; background: var(--primary); color: #fff; border: none; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 1px 3px rgba(0,59,76,0.2); }
+    .login-btn:hover { background: #004D63; box-shadow: 0 2px 8px rgba(0,59,76,0.25); transform: translateY(-1px); }
+    .login-btn.loading { opacity: .7; pointer-events: none; }
+    .spinner { display: none; width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .5s linear infinite; }
+    .login-btn.loading .spinner { display: block; }
+    .login-btn.loading .btn-t { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .err-msg { background: rgba(239,68,68,.05); border: 1px solid rgba(239,68,68,.1); color: var(--red); padding: 9px 12px; border-radius: 10px; font-size: 12px; margin-bottom: 14px; display: none; align-items: center; gap: 6px; }
+    .err-msg svg { width: 14px; height: 14px; flex-shrink: 0; }
+    .err-msg.show { display: flex; }
+    .secure { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 16px; font-size: 10.5px; color: var(--text-muted); }
+    .secure svg { width: 12px; height: 12px; color: var(--green); }
+    .footer { text-align: center; margin-top: 20px; font-size: 11.5px; color: var(--text-muted); }
+    @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-5px)} 40%{transform:translateX(5px)} 60%{transform:translateX(-3px)} 80%{transform:translateX(3px)} }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="logo"><img src="img/logo.png" alt="WERN"><h1>WERN</h1><p>Admin Portal</p></div>
+    <div class="card" id="login-card">
+      <div class="err-msg" id="err"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg><span id="err-text"></span></div>
+      <form onsubmit="handleLogin(event)">
+        <div class="fg"><label class="fl">Email</label><div class="input-wrap"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg><input type="email" id="email" placeholder="admin@wern.app" autocomplete="email" required></div></div>
+        <div class="fg"><label class="fl">Password</label><div class="input-wrap"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><input type="password" id="pass" placeholder="Enter password" autocomplete="current-password" required><button type="button" class="eye-btn" onclick="togglePw()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+        <div class="options"><label class="remember"><input type="checkbox" checked> Remember me</label><a href="#" class="forgot" onclick="forgotPw(event)">Forgot?</a></div>
+        <button type="submit" class="login-btn" id="btn"><span class="btn-t">Sign In</span><div class="spinner"></div></button>
+      </form>
+      <div class="secure"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg> Encrypted connection</div>
+    </div>
+    <div class="footer">&copy; 2026 WERN</div>
+  </div>
+  <script>
+    function togglePw(){var p=document.getElementById('pass');p.type=p.type==='password'?'text':'password';}
+    function handleLogin(e){e.preventDefault();var em=document.getElementById('email').value,pw=document.getElementById('pass').value,btn=document.getElementById('btn'),err=document.getElementById('err');err.classList.remove('show');btn.classList.add('loading');setTimeout(function(){if(em==='admin@wern.app'&&pw==='admin123'){localStorage.setItem('wern_admin_auth',JSON.stringify({email:em,loggedIn:true,timestamp:Date.now()}));location.href='index.html';}else{btn.classList.remove('loading');err.classList.add('show');document.getElementById('err-text').textContent='Invalid email or password.';var c=document.getElementById('login-card');c.style.animation='shake .3s ease';setTimeout(function(){c.style.animation='';},300);}},1000);}
+    function forgotPw(e){e.preventDefault();var em=document.getElementById('email').value,err=document.getElementById('err');err.classList.add('show');if(em){err.style.background='rgba(34,197,94,.05)';err.style.borderColor='rgba(34,197,94,.1)';err.style.color='#22C55E';document.getElementById('err-text').textContent='Reset link sent to '+em;}else{document.getElementById('err-text').textContent='Enter email first.';}}
+    var a=localStorage.getItem('wern_admin_auth');if(a){var d=JSON.parse(a);if(d.loggedIn&&Date.now()-d.timestamp<86400000)location.href='index.html';}
+  </script>
+</body>
+</html>

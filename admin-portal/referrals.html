@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WERN Admin - Referrals</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><img src="img/logo.png" alt="WERN"><h2>WERN <span>Admin</span></h2></div>
+    <nav class="sidebar-nav">
+      <div class="nav-group"><div class="nav-label">Overview</div><a href="index.html" class="nav-item"><i data-lucide="layout-dashboard"></i> Dashboard</a><a href="analytics.html" class="nav-item"><i data-lucide="bar-chart-3"></i> Analytics</a></div>
+      <div class="nav-group"><div class="nav-label">Management</div><a href="users.html" class="nav-item"><i data-lucide="users"></i> Users</a><a href="notifications.html" class="nav-item"><i data-lucide="bell"></i> Notifications</a><a href="transactions.html" class="nav-item"><i data-lucide="wallet"></i> Transactions</a><a href="referrals.html" class="nav-item active"><i data-lucide="share-2"></i> Referrals</a></div>
+      <div class="nav-group"><div class="nav-label">Content</div><a href="causes.html" class="nav-item"><i data-lucide="heart"></i> Causes</a><a href="rewards.html" class="nav-item"><i data-lucide="gift"></i> Rewards</a><a href="content.html" class="nav-item"><i data-lucide="image"></i> Content</a></div>
+      <div class="nav-group"><div class="nav-label">System</div><a href="settings.html" class="nav-item"><i data-lucide="settings"></i> Settings</a></div>
+    </nav>
+    <div class="sidebar-footer"><a href="#" onclick="logout()" class="nav-item"><i data-lucide="log-out"></i> Logout</a></div>
+  </aside>
+
+  <div class="main">
+    <header class="header">
+      <div class="header-left"><button class="menu-toggle"><i data-lucide="menu" style="width:18px;height:18px;"></i></button><h1 class="page-title">Referrals</h1></div>
+      <div class="header-right"><div class="header-search"><i data-lucide="search"></i><input type="text" placeholder="Search..."></div><button class="icon-btn"><i data-lucide="bell" style="width:18px;height:18px;"></i><span class="dot"></span></button><div class="avatar-wrap"><div class="avatar" style="cursor:pointer;">A</div><div class="avatar-menu"><a href="settings.html"><i data-lucide="user"></i> Admin Profile</a><a href="settings.html"><i data-lucide="settings"></i> Settings</a><div class="divider"></div><button class="logout-item" onclick="logout()"><i data-lucide="log-out"></i> Logout</button></div></div></div>
+    </header>
+
+    <div class="content">
+      <div class="stats">
+        <div class="stat"><div class="stat-top"><div class="stat-icon blue"><i data-lucide="link"></i></div><span class="stat-badge up">+18.7%</span></div><div class="stat-val">4,231</div><div class="stat-lbl">Total Referrals</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon green"><i data-lucide="user-check"></i></div></div><div class="stat-val">68.4%</div><div class="stat-lbl">Conversion Rate</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon primary"><i data-lucide="award"></i></div></div><div class="stat-val">846K</div><div class="stat-lbl">Litties Earned</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon teal"><i data-lucide="users"></i></div></div><div class="stat-val">312</div><div class="stat-lbl">Active Referrers</div></div>
+      </div>
+
+      <div class="g2">
+        <div class="card">
+          <div class="card-head"><div><h3>Top Referrers</h3></div></div>
+          <div class="card-body" style="padding:12px 20px;">
+            <ul class="feed">
+              <li class="feed-item"><div style="width:22px;text-align:center;font-weight:800;color:var(--amber);">1</div><div class="user-ava" style="background:#22C55E;width:34px;height:34px;font-size:11px;">RK</div><div class="flex-1"><div class="feed-text"><strong>Rahul Kumar</strong></div><div class="feed-time mono">WERN-RK1234</div></div><div style="text-align:right;"><div class="fw-700">42</div><div class="text-muted fs-sm">referrals</div></div></li>
+              <li class="feed-item"><div style="width:22px;text-align:center;font-weight:800;color:var(--text-muted);">2</div><div class="user-ava" style="background:#EC4899;width:34px;height:34px;font-size:11px;">MR</div><div class="flex-1"><div class="feed-text"><strong>Meera Reddy</strong></div><div class="feed-time mono">WERN-MR5678</div></div><div style="text-align:right;"><div class="fw-700">38</div><div class="text-muted fs-sm">referrals</div></div></li>
+              <li class="feed-item"><div style="width:22px;text-align:center;font-weight:800;color:#CD7F32;">3</div><div class="user-ava" style="background:#6C5CE7;width:34px;height:34px;font-size:11px;">AP</div><div class="flex-1"><div class="feed-text"><strong>Arjun Patel</strong></div><div class="feed-time mono">WERN-AP2847</div></div><div style="text-align:right;"><div class="fw-700">28</div><div class="text-muted fs-sm">referrals</div></div></li>
+              <li class="feed-item"><div style="width:22px;text-align:center;font-weight:700;color:var(--text-muted);">4</div><div class="user-ava" style="background:#3B82F6;width:34px;height:34px;font-size:11px;">AS</div><div class="flex-1"><div class="feed-text"><strong>Anita Singh</strong></div><div class="feed-time mono">WERN-AS9012</div></div><div style="text-align:right;"><div class="fw-700">21</div><div class="text-muted fs-sm">referrals</div></div></li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h3>Recent Referrals</h3></div></div>
+          <div style="overflow-x:auto;">
+            <table class="tbl">
+              <thead><tr><th>New User</th><th>Referred By</th><th>Code</th><th>Date</th></tr></thead>
+              <tbody>
+                <tr><td><div class="user-cell"><div class="user-ava" style="background:#14B8A6;width:26px;height:26px;font-size:9px;">NK</div><div class="user-name">Nisha Kapoor</div></div></td><td>Rahul Kumar</td><td class="mono text-muted fs-sm">WERN-RK1234</td><td>Apr 11</td></tr>
+                <tr><td><div class="user-cell"><div class="user-ava" style="background:#EC4899;width:26px;height:26px;font-size:9px;">RS</div><div class="user-name">Rohit Saxena</div></div></td><td>Meera Reddy</td><td class="mono text-muted fs-sm">WERN-MR5678</td><td>Apr 11</td></tr>
+                <tr><td><div class="user-cell"><div class="user-ava" style="background:#6C5CE7;width:26px;height:26px;font-size:9px;">PD</div><div class="user-name">Pooja Desai</div></div></td><td>Arjun Patel</td><td class="mono text-muted fs-sm">WERN-AP2847</td><td>Apr 10</td></tr>
+                <tr><td><div class="user-cell"><div class="user-ava" style="background:#22C55E;width:26px;height:26px;font-size:9px;">AM</div><div class="user-name">Amit Malhotra</div></div></td><td>Rahul Kumar</td><td class="mono text-muted fs-sm">WERN-RK1234</td><td>Apr 10</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div><h3>All Referral Codes</h3></div><button class="btn btn-sec btn-sm" onclick="exportData()"><i data-lucide="download" style="width:13px;height:13px;"></i> Export</button></div>
+        <div style="padding:14px 20px 0;"><div class="search-box" style="max-width:260px;"><i data-lucide="search" style="width:13px;height:13px;color:var(--text-muted);"></i><input type="text" class="tbl-search" placeholder="Search codes..."></div></div>
+        <div style="overflow-x:auto;">
+          <table class="tbl">
+            <thead><tr><th>User</th><th>Code</th><th>Referrals</th><th>Network</th><th>Litties</th><th>Conversion</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><div class="user-cell"><div class="user-ava" style="background:#22C55E;width:28px;height:28px;font-size:9px;">RK</div><div class="user-name">Rahul Kumar</div></div></td><td class="mono fs-sm" style="color:var(--primary);">WERN-RK1234</td><td><strong>42</strong></td><td>67</td><td>8,400</td><td>78.5%</td><td><span class="badge active">Active</span></td></tr>
+              <tr><td><div class="user-cell"><div class="user-ava" style="background:#EC4899;width:28px;height:28px;font-size:9px;">MR</div><div class="user-name">Meera Reddy</div></div></td><td class="mono fs-sm" style="color:var(--primary);">WERN-MR5678</td><td><strong>38</strong></td><td>52</td><td>7,600</td><td>72.3%</td><td><span class="badge active">Active</span></td></tr>
+              <tr><td><div class="user-cell"><div class="user-ava" style="background:#6C5CE7;width:28px;height:28px;font-size:9px;">AP</div><div class="user-name">Arjun Patel</div></div></td><td class="mono fs-sm" style="color:var(--primary);">WERN-AP2847</td><td><strong>28</strong></td><td>35</td><td>5,600</td><td>65.8%</td><td><span class="badge active">Active</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="paging"><div class="paging-info">Showing 1-3 of 312</div><div class="paging-btns"><button class="pg-btn" disabled><i data-lucide="chevron-left" style="width:14px;height:14px;"></i></button><button class="pg-btn active">1</button><button class="pg-btn">2</button><button class="pg-btn">3</button><button class="pg-btn"><i data-lucide="chevron-right" style="width:14px;height:14px;"></i></button></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

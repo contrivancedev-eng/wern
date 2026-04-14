@@ -98,6 +98,22 @@ const iconMap = {
   'map-outline': { set: 'Ionicons', name: 'map-outline' },
   'videocam': { set: 'Ionicons', name: 'videocam' },
   'videocam-outline': { set: 'Ionicons', name: 'videocam-outline' },
+  'watch': { set: 'Ionicons', name: 'watch' },
+  'watch-outline': { set: 'Ionicons', name: 'watch-outline' },
+  'bluetooth': { set: 'Ionicons', name: 'bluetooth' },
+  'heart': { set: 'Ionicons', name: 'heart' },
+  'heart-outline': { set: 'Ionicons', name: 'heart-outline' },
+  'play': { set: 'Ionicons', name: 'play' },
+  'play-outline': { set: 'Ionicons', name: 'play-outline' },
+  'link': { set: 'Ionicons', name: 'link' },
+  'unlink': { set: 'Ionicons', name: 'unlink' },
+  'refresh': { set: 'Ionicons', name: 'refresh' },
+  'logo-apple': { set: 'Ionicons', name: 'logo-apple' },
+  'logo-android': { set: 'Ionicons', name: 'logo-android' },
+  'keypad': { set: 'Ionicons', name: 'keypad' },
+  'pulse': { set: 'Ionicons', name: 'pulse' },
+  'wifi': { set: 'Ionicons', name: 'wifi' },
+  'sync': { set: 'Ionicons', name: 'sync' },
 };
 
 const Icon = ({ name, size = 24, color = '#FFFFFF', style }) => {

@@ -12,6 +12,14 @@ import { useTheme } from '../../context/ThemeContext';
 import { useWalking, useAuth, useWeather } from '../../context';
 import { fonts } from '../../utils';
 
+// Format large numbers (1000 -> 1k, etc.)
+const formatNumber = (num) => {
+  const n = Number(num);
+  if (isNaN(n)) return '0';
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return Math.round(n).toString();
+};
+
 // Import SVG backgrounds for causes 1, 2, 3
 import Forest1 from '../../../assest/forest/1.svg';
 import Forest2 from '../../../assest/forest/2.svg';
@@ -49,6 +57,10 @@ const WalkScreen = () => {
   });
   const [showHourlyGraph, setShowHourlyGraph] = useState(false);
   const [hourlyData, setHourlyData] = useState(Array(24).fill(0));
+  const [activityViewMode, setActivityViewMode] = useState('daily'); // 'daily', 'weekly', 'monthly'
+  const [weeklyData, setWeeklyData] = useState([]);
+  const [monthlyData, setMonthlyData] = useState([]);
+  const [causeSteps, setCauseSteps] = useState({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
   const [showMap, setShowMap] = useState(false);
   const [mapHeight] = useState(new Animated.Value(280)); // Default map height
   const mapHeightRef = useRef(280);
@@ -85,6 +97,7 @@ const WalkScreen = () => {
     isPedometerAvailable,
     updateGoalSteps,
     updateLocation,
+    updateToken,
     setCurrentUser,
     kilometre,
     kcal,
@@ -127,18 +140,22 @@ const WalkScreen = () => {
     }
   }, [token, updateGoalSteps]);
 
-  // Auto-scroll to current hour when hourly graph is shown
+  // Auto-scroll to current hour when hourly graph is shown (daily only).
+  // For weekly/monthly, reset scroll to the start so bars don't render off-screen.
   useEffect(() => {
-    if (showHourlyGraph && hourlyScrollRef.current) {
+    if (!showHourlyGraph || !hourlyScrollRef.current) return;
+    if (activityViewMode === 'daily') {
       const currentHour = new Date().getHours();
-      // Each bar column is 28px wide + 4px margin (2px each side) = 32px total
-      // Scroll to show current hour in the center of the view
-      const scrollPosition = Math.max(0, (currentHour * 32) - 80); // 80px offset to center
+      const scrollPosition = Math.max(0, (currentHour * 32) - 80);
       setTimeout(() => {
         hourlyScrollRef.current?.scrollTo({ x: scrollPosition, animated: true });
       }, 100);
+    } else {
+      setTimeout(() => {
+        hourlyScrollRef.current?.scrollTo({ x: 0, animated: false });
+      }, 50);
     }
-  }, [showHourlyGraph]);
+  }, [showHourlyGraph, activityViewMode]);
 
   // Get today's date string for storage key
   const getTodayDateString = () => {
@@ -146,38 +163,149 @@ const WalkScreen = () => {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   };
 
-  // Load hourly data from AsyncStorage
+  // Load today's hourly breakdown from get-step-transection-list.
+  // Response: data.buckets[] with { hour, total_steps, transactions }.
   const loadHourlyData = useCallback(async () => {
-    const userId = user?.id || user?.user_id;
-    if (!userId) return;
+    if (!token) return;
+    const today = getTodayDateString();
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { apiFetch } = require('../../utils/apiClient');
+      const { json } = await apiFetch(
+        `${API_URL}get-step-transection-list?token=${token}&filter=hourly&date=${today}`,
+        { headers: { Accept: 'application/json' } }
+      );
+      const hours = Array(24).fill(0);
+      if (json?.status === true && Array.isArray(json?.data?.buckets)) {
+        json.data.buckets.forEach((b) => {
+          const h = Number(b?.hour);
+          if (Number.isFinite(h) && h >= 0 && h < 24) {
+            hours[h] = Number(b?.total_steps) || 0;
+          }
+        });
+      }
+      setHourlyData(hours);
+    } catch (e) {
+      console.log('Hourly fetch failed:', e?.message);
+    }
+  }, [token]);
+
+  // No-op saver kept for backwards compatibility with callers that still
+  // pass incremental deltas. The real source of truth is the server.
+  const saveHourlyData = useCallback(() => {}, []);
+
+  // Load this week's per-day breakdown from get-digital-vault-data.
+  const loadWeeklyData = useCallback(async () => {
+    if (!token) return;
+    const today = getTodayDateString();
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { apiFetch } = require('../../utils/apiClient');
+      const { json } = await apiFetch(
+        `${API_URL}get-step-transection-list?token=${token}&filter=weekly&date=${today}`,
+        { headers: { Accept: 'application/json' } }
+      );
+      const weekData = [];
+      if (json?.status === true && Array.isArray(json?.data?.buckets)) {
+        json.data.buckets.forEach((b) => {
+          const isTodayEntry = b?.date === today;
+          const serverSteps = Number(b?.total_steps) || 0;
+          weekData.push({
+            label: String(b?.label || '').slice(0, 3),
+            steps: isTodayEntry ? Math.max(stepCount, serverSteps) : serverSteps,
+            isToday: isTodayEntry,
+          });
+        });
+      }
+      setWeeklyData(weekData);
+    } catch (e) {
+      console.log('Weekly fetch failed:', e?.message);
+    }
+  }, [token, stepCount]);
+
+  // Load this month's per-day breakdown from get-digital-vault-data.
+  const loadMonthlyData = useCallback(async () => {
+    if (!token) return;
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const todayStr = getTodayDateString();
 
     try {
-      const todayKey = `hourlySteps_${userId}_${getTodayDateString()}`;
-      const stored = await AsyncStorage.getItem(todayKey);
-
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setHourlyData(parsed);
-      } else {
-        // No data for today, reset to zeros
-        setHourlyData(Array(24).fill(0));
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { apiFetch } = require('../../utils/apiClient');
+      const { json } = await apiFetch(
+        `${API_URL}get-step-transection-list?token=${token}&filter=monthly&month=${month}&year=${year}`,
+        { headers: { Accept: 'application/json' } }
+      );
+      const data = [];
+      if (json?.status === true && Array.isArray(json?.data?.buckets)) {
+        json.data.buckets.forEach((b) => {
+          const isTodayEntry = b?.date === todayStr;
+          const serverSteps = Number(b?.total_steps) || 0;
+          data.push({
+            label: String(b?.label ?? b?.day ?? ''),
+            steps: isTodayEntry ? Math.max(stepCount, serverSteps) : serverSteps,
+            isToday: isTodayEntry,
+          });
+        });
       }
-    } catch (error) {
-      console.log('Error loading hourly data:', error.message);
-      setHourlyData(Array(24).fill(0));
+      setMonthlyData(data);
+    } catch (e) {
+      console.log('Monthly fetch failed:', e?.message);
+    }
+  }, [token, stepCount]);
+
+  // Load cause steps from AsyncStorage (fast local seed for Impact Portfolio)
+  const loadCauseSteps = useCallback(async () => {
+    const userId = user?.id || user?.user_id;
+    if (!userId) return;
+    try {
+      const stored = await AsyncStorage.getItem(`@wern_cause_steps_${userId}`);
+      if (stored) setCauseSteps(JSON.parse(stored));
+    } catch (e) {
+      console.log('Error loading cause steps:', e.message);
     }
   }, [user]);
 
-  // Save hourly data to AsyncStorage
-  const saveHourlyData = useCallback(async (data) => {
+  // Fetch authoritative lifetime per-category step totals from the server.
+  // This is what powers the Impact Portfolio after reinstall — replaces the
+  // @wern_cause_steps_{userId} local cache.
+  const loadCauseStepsFromServer = useCallback(async () => {
+    if (!token) return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { apiFetch } = require('../../utils/apiClient');
+      const { json } = await apiFetch(
+        `${API_URL}get-digital-vault-data?token=${token}&filter=all`,
+        { headers: { Accept: 'application/json' } }
+      );
+      if (json?.status !== true || !Array.isArray(json?.data?.category_data)) return;
+
+      const fromServer = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      json.data.category_data.forEach((row) => {
+        const cid = Number(row?.category_id);
+        if (cid >= 1 && cid <= 5) {
+          fromServer[cid] = Number(row.steps) || 0;
+        }
+      });
+      setCauseSteps(fromServer);
+      // Refresh the local cache with the server-truth values so the UI
+      // has something to show instantly on the next cold start.
+      saveCauseSteps(fromServer);
+    } catch (e) {
+      console.log('Error loading category_data:', e?.message);
+    }
+  }, [token, saveCauseSteps]);
+
+  // Save cause steps to AsyncStorage
+  const saveCauseSteps = useCallback(async (data) => {
     const userId = user?.id || user?.user_id;
     if (!userId) return;
-
     try {
-      const todayKey = `hourlySteps_${userId}_${getTodayDateString()}`;
-      await AsyncStorage.setItem(todayKey, JSON.stringify(data));
-    } catch (error) {
-      console.log('Error saving hourly data:', error.message);
+      await AsyncStorage.setItem(`@wern_cause_steps_${userId}`, JSON.stringify(data));
+    } catch (e) {
+      console.log('Error saving cause steps:', e.message);
     }
   }, [user]);
 
@@ -318,30 +446,43 @@ const WalkScreen = () => {
       const currentHour = new Date().getHours();
       const stepsDelta = stepCount - prevStepCountRef.current;
 
-      // Only add reasonable deltas (max 50 steps at a time to prevent jumps)
-      if (stepsDelta > 0 && stepsDelta <= 50) {
+      // Accept any positive delta up to 500 (reject absurd jumps from errors)
+      if (stepsDelta > 0 && stepsDelta <= 500) {
+        // Track steps per cause
+        if (activeCause) {
+          setCauseSteps(prev => {
+            const updated = { ...prev, [activeCause]: (prev[activeCause] || 0) + stepsDelta };
+            saveCauseSteps(updated);
+            return updated;
+          });
+        }
+
         setHourlyData(prev => {
           const updated = [...prev];
-          // Handle hour change
           if (currentHour !== lastHourRef.current) {
             lastHourRef.current = currentHour;
           }
           updated[currentHour] += stepsDelta;
-          // Save to AsyncStorage
           saveHourlyData(updated);
           return updated;
         });
       }
       prevStepCountRef.current = stepCount;
     }
-  }, [isWalking, stepCount, saveHourlyData]);
+  }, [isWalking, stepCount, saveHourlyData, activeCause, saveCauseSteps]);
 
   // Fetch today's summary on mount and when token changes, load hourly data locally
   useEffect(() => {
     fetchTodaySummary();
     loadHourlyData();
     loadWeightData();
-  }, [fetchTodaySummary, loadHourlyData, loadWeightData]);
+    loadWeeklyData();
+    loadMonthlyData();
+    loadCauseSteps();
+    // Fetch authoritative lifetime totals from the server — overwrites
+    // the local cache once the response arrives.
+    loadCauseStepsFromServer();
+  }, [fetchTodaySummary, loadHourlyData, loadWeightData, loadWeeklyData, loadMonthlyData, loadCauseSteps, loadCauseStepsFromServer]);
 
   // Track daily goal achievement for weight auto-update
   const lastGoalCheckDateRef = useRef(null);
@@ -408,12 +549,20 @@ const WalkScreen = () => {
     }
   }, [isWalking, location, updateLocation]);
 
+  // Keep the WalkingContext aware of the current auth token so
+  // save-step-event can authenticate.
+  useEffect(() => {
+    updateToken(token);
+  }, [token, updateToken]);
+
   // Refetch data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       fetchTodaySummary();
       loadHourlyData();
-    }, [fetchTodaySummary, loadHourlyData])
+      // Keep Impact Portfolio in sync with server lifetime totals.
+      loadCauseStepsFromServer();
+    }, [fetchTodaySummary, loadHourlyData, loadCauseStepsFromServer])
   );
 
   // Reload hourly data when app comes to foreground from background
@@ -580,10 +729,10 @@ const WalkScreen = () => {
   const displayKcal = kcal;
   const displayLitres = litres;
 
-  // Cause progress data
-  const causeProgressSteps = 8750 + stepCount;
+  // Cause progress data - use real steps for active cause
+  const activeCauseSteps = activeCause ? (causeSteps[activeCause] || 0) : 0;
   const causeProgressGoal = 100000;
-  const causeProgressPercent = (causeProgressSteps / causeProgressGoal) * 100;
+  const causeProgressPercent = (activeCauseSteps / causeProgressGoal) * 100;
 
   // Cause reward configurations
   const causeRewardConfig = {
@@ -665,7 +814,7 @@ const WalkScreen = () => {
   const getCurrentBackgroundSvg = () => {
     if (!currentCauseReward.backgroundType) return null;
     const stageSize = causeProgressGoal / 4;
-    const stage = Math.min(Math.floor(causeProgressSteps / stageSize), 3);
+    const stage = Math.min(Math.floor(activeCauseSteps / stageSize), 3);
     return backgroundSvgs[currentCauseReward.backgroundType][stage];
   };
 
@@ -743,14 +892,23 @@ const WalkScreen = () => {
     );
   };
 
-  // Impact portfolio data
+  // Impact portfolio data - calculated from real cause steps
+  // Conversions: 100,000 steps = 10 EcoSeeds = 1 Tree, 10,000 steps = 1L water, 10,000 steps = 1 meal
+  const treesPlanted = Math.floor((causeSteps[1] || 0) / 100000);
+  const ecoSeeds = ((causeSteps[1] || 0) % 100000) / 10000; // fractional seeds toward next tree
+  const waterDonated = Math.floor((causeSteps[2] || 0) / 10000);
+  const mealsProvided = Math.floor((causeSteps[3] || 0) / 10000);
+  const totalCauseSteps = Object.values(causeSteps).reduce((sum, s) => sum + s, 0);
+  const livesTouched = Math.floor(totalCauseSteps / 5000);
+  const interactions = Math.floor(totalCauseSteps / 2000);
+
   const impactData = [
-    { id: 1, value: '24', label: 'Trees Planted', image: require('../../../assest/img/impact-portfolio-img-1.webp'), imageHeight: 45 },
-    { id: 2, value: '34L', label: 'Water Donated', image: require('../../../assest/img/impact-portfolio-img-2.webp'), imageHeight: 50 },
-    { id: 3, value: '15', label: 'Meals Provided', image: require('../../../assest/img/impact-portfolio-img-3.webp'), imageHeight: 45 },
-    { id: 4, value: '8', label: 'Safety Reports', image: require('../../../assest/img/impact-portfolio-img-4.webp'), imageHeight: 40 },
-    { id: 5, value: '124', label: 'Lives Touched', image: require('../../../assest/img/impact-portfolio-img-5.webp'), imageHeight: 50 },
-    { id: 6, value: '123', label: 'Interaction', image: require('../../../assest/img/impact-portfolio-img-6.webp'), imageHeight: 45 },
+    { id: 1, value: String(treesPlanted), label: 'Trees Planted', image: require('../../../assest/img/impact-portfolio-img-1.webp'), imageHeight: 45 },
+    { id: 2, value: `${waterDonated}L`, label: 'Water Donated', image: require('../../../assest/img/impact-portfolio-img-2.webp'), imageHeight: 50 },
+    { id: 3, value: String(mealsProvided), label: 'Meals Provided', image: require('../../../assest/img/impact-portfolio-img-3.webp'), imageHeight: 45 },
+    { id: 4, value: String(Math.floor((causeSteps[4] || 0) / 10000)), label: 'Safety Reports', image: require('../../../assest/img/impact-portfolio-img-4.webp'), imageHeight: 40 },
+    { id: 5, value: String(livesTouched), label: 'Lives Touched', image: require('../../../assest/img/impact-portfolio-img-5.webp'), imageHeight: 50 },
+    { id: 6, value: String(interactions), label: 'Interaction', image: require('../../../assest/img/impact-portfolio-img-6.webp'), imageHeight: 45 },
   ];
 
   // Rewards data
@@ -1087,7 +1245,7 @@ const WalkScreen = () => {
               </View>
             </View>
 
-            {/* Hourly Graph Toggle */}
+            {/* Activity Graph Toggle */}
             <TouchableOpacity
               style={styles.hourlyToggle}
               onPress={() => setShowHourlyGraph(!showHourlyGraph)}
@@ -1095,7 +1253,7 @@ const WalkScreen = () => {
             >
               <View style={styles.hourlyToggleLeft}>
                 <Icon name="bar-chart" size={16} color={colors.textLight} />
-                <Text style={styles.hourlyToggleText}>Hourly Activity</Text>
+                <Text style={styles.hourlyToggleText}>Activity</Text>
               </View>
               <Icon
                 name={showHourlyGraph ? 'chevron-up' : 'chevron-down'}
@@ -1104,12 +1262,26 @@ const WalkScreen = () => {
               />
             </TouchableOpacity>
 
-            {/* Hourly Bar Graph */}
+            {/* Activity Graph */}
             {showHourlyGraph && (
               <View style={styles.hourlyGraphContainer}>
-                {/* Y-axis labels and bars */}
+                {/* View Mode Tabs */}
+                <View style={styles.activityTabs}>
+                  {['daily', 'weekly', 'monthly'].map((mode) => (
+                    <TouchableOpacity
+                      key={mode}
+                      style={[styles.activityTab, activityViewMode === mode && styles.activityTabActive]}
+                      onPress={() => setActivityViewMode(mode)}
+                    >
+                      <Text style={[styles.activityTabText, activityViewMode === mode && styles.activityTabTextActive]}>
+                        {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* Bar Chart */}
                 <View style={styles.hourlyGraphContent}>
-                  {/* Bar chart */}
                   <View style={styles.barsContainer}>
                     <ScrollView
                       ref={hourlyScrollRef}
@@ -1117,33 +1289,56 @@ const WalkScreen = () => {
                       showsHorizontalScrollIndicator={false}
                       contentContainerStyle={styles.barsScrollContent}
                     >
-                      {hourlyData.map((steps, hour) => {
-                        const maxSteps = Math.max(...hourlyData, 100); // Minimum scale of 100
+                      {activityViewMode === 'daily' && hourlyData.map((steps, hour) => {
+                        const maxSteps = Math.max(...hourlyData, 100);
                         const barHeight = maxSteps > 0 ? (steps / maxSteps) * 80 : 0;
                         const isCurrentHour = hour === new Date().getHours();
-
                         return (
                           <View key={hour} style={styles.barColumn}>
-                            <Text style={styles.barValue}>
-                              {steps > 0 ? steps : ''}
-                            </Text>
+                            <Text style={styles.barValue}>{steps > 0 ? steps : ''}</Text>
                             <View style={styles.barWrapper}>
                               <LinearGradient
                                 colors={isCurrentHour ? ['#f97316', '#ea580c'] : ['#22c55e', '#16a34a']}
-                                style={[
-                                  styles.bar,
-                                  { height: Math.max(barHeight, steps > 0 ? 4 : 0) }
-                                ]}
+                                style={[styles.bar, { height: Math.max(barHeight, steps > 0 ? 4 : 0) }]}
                               />
                             </View>
-                            <Text style={[
-                              styles.barLabel,
-                              isCurrentHour && styles.barLabelCurrent
-                            ]}>
-                              {hour === 0 ? '12am' :
-                               hour === 12 ? '12pm' :
-                               hour < 12 ? `${hour}am` : `${hour - 12}pm`}
+                            <Text style={[styles.barLabel, isCurrentHour && styles.barLabelCurrent]}>
+                              {hour === 0 ? '12am' : hour === 12 ? '12pm' : hour < 12 ? `${hour}am` : `${hour - 12}pm`}
                             </Text>
+                          </View>
+                        );
+                      })}
+
+                      {activityViewMode === 'weekly' && weeklyData.map((day, index) => {
+                        const maxSteps = Math.max(...weeklyData.map(d => d.steps), 100);
+                        const barHeight = maxSteps > 0 ? (day.steps / maxSteps) * 80 : 0;
+                        return (
+                          <View key={index} style={[styles.barColumn, { width: 40, marginHorizontal: 4 }]}>
+                            <Text style={styles.barValue}>{day.steps > 0 ? formatNumber(day.steps) : ''}</Text>
+                            <View style={styles.barWrapper}>
+                              <LinearGradient
+                                colors={day.isToday ? ['#f97316', '#ea580c'] : ['#22c55e', '#16a34a']}
+                                style={[styles.bar, { height: Math.max(barHeight, day.steps > 0 ? 4 : 0) }]}
+                              />
+                            </View>
+                            <Text style={[styles.barLabel, day.isToday && styles.barLabelCurrent]}>{day.label}</Text>
+                          </View>
+                        );
+                      })}
+
+                      {activityViewMode === 'monthly' && monthlyData.map((day, index) => {
+                        const maxSteps = Math.max(...monthlyData.map(d => d.steps), 100);
+                        const barHeight = maxSteps > 0 ? (day.steps / maxSteps) * 80 : 0;
+                        return (
+                          <View key={index} style={[styles.barColumn, { width: 22, marginHorizontal: 1 }]}>
+                            <Text style={[styles.barValue, { fontSize: 6 }]}>{day.steps > 0 ? formatNumber(day.steps) : ''}</Text>
+                            <View style={styles.barWrapper}>
+                              <LinearGradient
+                                colors={day.isToday ? ['#f97316', '#ea580c'] : ['#22c55e', '#16a34a']}
+                                style={[styles.bar, { height: Math.max(barHeight, day.steps > 0 ? 4 : 0) }]}
+                              />
+                            </View>
+                            <Text style={[styles.barLabel, { fontSize: 7 }, day.isToday && styles.barLabelCurrent]}>{day.label}</Text>
                           </View>
                         );
                       })}
@@ -1154,11 +1349,15 @@ const WalkScreen = () => {
                 <View style={styles.hourlyLegend}>
                   <View style={styles.hourlyLegendItem}>
                     <View style={[styles.hourlyLegendDot, { backgroundColor: '#22c55e' }]} />
-                    <Text style={styles.hourlyLegendText}>Past hours</Text>
+                    <Text style={styles.hourlyLegendText}>
+                      {activityViewMode === 'daily' ? 'Past hours' : activityViewMode === 'weekly' ? 'This week' : 'This month'}
+                    </Text>
                   </View>
                   <View style={styles.hourlyLegendItem}>
                     <View style={[styles.hourlyLegendDot, { backgroundColor: '#f97316' }]} />
-                    <Text style={styles.hourlyLegendText}>Current hour</Text>
+                    <Text style={styles.hourlyLegendText}>
+                      {activityViewMode === 'daily' ? 'Current hour' : 'Today'}
+                    </Text>
                   </View>
                 </View>
               </View>
@@ -1394,7 +1593,7 @@ const WalkScreen = () => {
               <View style={styles.causeProgressRight}>
                 <View style={styles.causeProgressHeader}>
                   <Text style={[styles.causeProgressValue, { color: currentCauseReward.textColor }]}>
-                    {currentCauseReward.value}
+                    {(activeCauseSteps / 10000).toFixed(3)}
                   </Text>
                   <Text style={[styles.causeProgressLabel, { color: currentCauseReward.textColor }]}>
                     {' '}{currentCauseReward.name}
@@ -1412,7 +1611,7 @@ const WalkScreen = () => {
                   />
                 </View>
                 <Text style={[styles.causeProgressSteps, { color: currentCauseReward.subTextColor }]}>
-                  {causeProgressSteps.toLocaleString()} of {causeProgressGoal.toLocaleString()} steps
+                  {activeCauseSteps.toLocaleString()} of {causeProgressGoal.toLocaleString()} steps
                 </Text>
               </View>
             </View>
@@ -1802,6 +2001,32 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     color: colors.textLight,
     marginLeft: 8,
     fontWeight: '500',
+  },
+  // Activity Tabs
+  activityTabs: {
+    flexDirection: 'row',
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 12,
+  },
+  activityTab: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  activityTabActive: {
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)',
+  },
+  activityTabText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: isDarkMode ? 'rgba(255,255,255,0.4)' : colors.textMuted,
+  },
+  activityTabTextActive: {
+    color: isDarkMode ? '#FFFFFF' : colors.textWhite,
+    fontWeight: '700',
   },
   // Hourly Graph Container
   hourlyGraphContainer: {

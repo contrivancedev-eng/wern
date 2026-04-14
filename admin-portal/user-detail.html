@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WERN Admin - User Detail</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    .profile-header { display: flex; align-items: center; gap: 18px; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
+    .profile-ava { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 22px; color: #fff; background: var(--primary); flex-shrink: 0; }
+    .profile-info h2 { font-size: 18px; font-weight: 750; color: var(--primary); }
+    .profile-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .profile-meta span { margin-right: 14px; }
+    .profile-actions { margin-left: auto; display: flex; gap: 8px; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    .info-item { padding: 12px 16px; background: var(--bg); border-radius: var(--radius-sm); }
+    .info-item label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); font-weight: 600; margin-bottom: 2px; }
+    .info-item span { font-size: 13.5px; font-weight: 600; color: var(--text); }
+    .timeline { list-style: none; }
+    .timeline-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); position: relative; }
+    .timeline-item:last-child { border-bottom: none; }
+    .timeline-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+    .timeline-content { flex: 1; }
+    .timeline-content .t-text { font-size: 12.5px; }
+    .timeline-content .t-time { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    #user-map { height: 220px; border-radius: 8px; z-index: 1; }
+    .metric-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); }
+    .metric-row:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><img src="img/logo.png" alt="WERN"><h2>WERN <span>Admin</span></h2></div>
+    <nav class="sidebar-nav">
+      <div class="nav-group"><div class="nav-label">Overview</div><a href="index.html" class="nav-item"><i data-lucide="layout-dashboard"></i> Dashboard</a><a href="analytics.html" class="nav-item"><i data-lucide="bar-chart-3"></i> Analytics</a></div>
+      <div class="nav-group"><div class="nav-label">Management</div><a href="users.html" class="nav-item active"><i data-lucide="users"></i> Users</a><a href="notifications.html" class="nav-item"><i data-lucide="bell"></i> Notifications</a><a href="transactions.html" class="nav-item"><i data-lucide="wallet"></i> Transactions</a><a href="referrals.html" class="nav-item"><i data-lucide="share-2"></i> Referrals</a></div>
+      <div class="nav-group"><div class="nav-label">Content</div><a href="causes.html" class="nav-item"><i data-lucide="heart"></i> Causes</a><a href="rewards.html" class="nav-item"><i data-lucide="gift"></i> Rewards</a><a href="content.html" class="nav-item"><i data-lucide="image"></i> Content</a></div>
+      <div class="nav-group"><div class="nav-label">System</div><a href="settings.html" class="nav-item"><i data-lucide="settings"></i> Settings</a></div>
+    </nav>
+    <div class="sidebar-footer"><a href="#" onclick="logout()" class="nav-item"><i data-lucide="log-out"></i> Logout</a></div>
+  </aside>
+
+  <div class="main">
+    <header class="header">
+      <div class="header-left">
+        <button class="menu-toggle"><i data-lucide="menu" style="width:18px;height:18px;"></i></button>
+        <a href="users.html" style="display:flex;align-items:center;gap:4px;color:var(--text-muted);font-size:12px;"><i data-lucide="arrow-left" style="width:14px;height:14px;"></i> Users</a>
+        <h1 class="page-title" style="margin-left:4px;">/ Arjun Patel</h1>
+      </div>
+      <div class="header-right"><div class="header-search"><i data-lucide="search"></i><input type="text" placeholder="Search..."></div><button class="icon-btn"><i data-lucide="bell" style="width:18px;height:18px;"></i><span class="dot"></span></button><div class="avatar-wrap"><div class="avatar" style="cursor:pointer;">A</div><div class="avatar-menu"><a href="settings.html"><i data-lucide="user"></i> Admin Profile</a><a href="settings.html"><i data-lucide="settings"></i> Settings</a><div class="divider"></div><button class="logout-item" onclick="logout()"><i data-lucide="log-out"></i> Logout</button></div></div></div>
+    </header>
+
+    <div class="content">
+      <!-- Profile Header -->
+      <div class="profile-header">
+        <div class="profile-ava">AP</div>
+        <div class="profile-info">
+          <h2>Arjun Patel</h2>
+          <div class="profile-meta">
+            <span><i data-lucide="mail" style="width:12px;height:12px;vertical-align:-2px;"></i> arjun.patel@email.com</span>
+            <span><i data-lucide="phone" style="width:12px;height:12px;vertical-align:-2px;"></i> +91 98765 43210</span>
+            <span><i data-lucide="calendar" style="width:12px;height:12px;vertical-align:-2px;"></i> Joined Jan 15, 2026</span>
+          </div>
+        </div>
+        <div class="profile-actions">
+          <span class="badge active" style="font-size:12px;padding:5px 12px;">Active</span>
+          <button class="btn btn-sec btn-sm" data-modal="user-edit-modal"><i data-lucide="pencil" style="width:13px;height:13px;"></i> Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="if(confirm('Ban this user?'))showToast('User banned','error')"><i data-lucide="shield-off" style="width:13px;height:13px;"></i> Ban</button>
+        </div>
+      </div>
+
+      <!-- Quick Stats -->
+      <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
+        <div class="stat"><div class="stat-val" style="font-size:20px;">1,245,670</div><div class="stat-lbl">Total Steps</div></div>
+        <div class="stat"><div class="stat-val" style="font-size:20px;">52,340</div><div class="stat-lbl">Steps Today</div></div>
+        <div class="stat"><div class="stat-val" style="font-size:20px;">4,823</div><div class="stat-lbl">Litties Balance</div></div>
+        <div class="stat"><div class="stat-val" style="font-size:20px;">934 km</div><div class="stat-lbl">Total Distance</div></div>
+        <div class="stat"><div class="stat-val" style="font-size:20px;">62.3K</div><div class="stat-lbl">Calories Burned</div></div>
+        <div class="stat"><div class="stat-val" style="font-size:20px;">8</div><div class="stat-lbl">Referrals</div></div>
+      </div>
+
+      <!-- Profile Details -->
+      <div class="g2">
+        <div class="card">
+          <div class="card-head"><h3>Profile Information</h3></div>
+          <div class="card-body">
+            <div class="info-grid">
+              <div class="info-item"><label>Full Name</label><span>Arjun Patel</span></div>
+              <div class="info-item"><label>Email</label><span>arjun.patel@email.com</span></div>
+              <div class="info-item"><label>Phone</label><span>+91 98765 43210</span></div>
+              <div class="info-item"><label>Country Code</label><span>+91 (India)</span></div>
+              <div class="info-item"><label>Referral Code</label><span class="mono" style="color:var(--primary);">WERN-AP2847</span></div>
+              <div class="info-item"><label>Referred By</label><span>Direct Signup</span></div>
+              <div class="info-item"><label>Activity Level</label><span>Advanced</span></div>
+              <div class="info-item"><label>Daily Goal</label><span>10,000 steps</span></div>
+              <div class="info-item"><label>Weekly Goal</label><span>5 active days</span></div>
+              <div class="info-item"><label>Current Weight</label><span>72 kg</span></div>
+              <div class="info-item"><label>Target Weight</label><span>68 kg</span></div>
+              <div class="info-item"><label>Last Active</label><span style="color:var(--green);">2 min ago</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Location Map -->
+        <div class="card">
+          <div class="card-head"><div><h3>Last Known Location</h3><div class="sub">Dubai Marina, Dubai</div></div></div>
+          <div class="card-body" style="padding:12px;"><div id="user-map"></div></div>
+          <div class="card-body" style="padding:0 18px 14px;">
+            <div class="metric-row"><span style="font-size:12px;color:var(--text-sec);">Latitude</span><span style="font-size:12px;font-weight:600;">25.1970</span></div>
+            <div class="metric-row"><span style="font-size:12px;color:var(--text-sec);">Longitude</span><span style="font-size:12px;font-weight:600;">55.2740</span></div>
+            <div class="metric-row"><span style="font-size:12px;color:var(--text-sec);">Last Updated</span><span style="font-size:12px;font-weight:600;color:var(--green);">2 min ago</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step Chart + Cause Breakdown -->
+      <div class="g2" data-loading="1000">
+        <div class="skel-wrap"><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;"><div class="skel skel-chart"></div><div class="skel skel-chart"></div></div></div>
+        <div class="load-content">
+          <div class="card">
+            <div class="card-head"><div><h3>Step History</h3><div class="sub">Last 7 days</div></div></div>
+            <div class="card-body"><div class="chart-wrap"><canvas id="stepHistChart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h3>Cause Contribution</h3><div class="sub">Steps by cause</div></div></div>
+            <div class="card-body"><div class="chart-wrap" style="height:180px;"><canvas id="causeChart"></canvas></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Transactions + Activity Timeline -->
+      <div class="g2">
+        <div class="card">
+          <div class="card-head"><div><h3>Recent Transactions</h3><div class="sub">Litties history</div></div></div>
+          <div style="overflow-x:auto;">
+            <table class="tbl">
+              <thead><tr><th>Type</th><th>Amount</th><th>Balance</th><th>Date</th></tr></thead>
+              <tbody>
+                <tr><td><span class="badge active">Step Reward</span></td><td class="text-green fw-600">+523</td><td>4,823</td><td>Apr 11, 2026</td></tr>
+                <tr><td><span class="badge active">Step Reward</span></td><td class="text-green fw-600">+412</td><td>4,300</td><td>Apr 10, 2026</td></tr>
+                <tr><td><span class="badge pending">Daily Claim</span></td><td class="text-green fw-600">+40</td><td>3,888</td><td>Apr 10, 2026</td></tr>
+                <tr><td><span class="badge active">Step Reward</span></td><td class="text-green fw-600">+380</td><td>3,848</td><td>Apr 9, 2026</td></tr>
+                <tr><td><span class="badge" style="background:var(--blue-soft);color:var(--blue);">Referral</span></td><td class="text-green fw-600">+200</td><td>3,468</td><td>Apr 8, 2026</td></tr>
+                <tr><td><span class="badge pending">Daily Claim</span></td><td class="text-green fw-600">+30</td><td>3,268</td><td>Apr 8, 2026</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div><h3>Activity Timeline</h3><div class="sub">Recent user events</div></div></div>
+          <div class="card-body" style="padding:12px 18px;">
+            <ul class="timeline">
+              <li class="timeline-item"><div class="timeline-dot" style="background:var(--green);"></div><div class="timeline-content"><div class="t-text"><strong>Started walking</strong> - Forest Restoration cause</div><div class="t-time">2 minutes ago</div></div></li>
+              <li class="timeline-item"><div class="timeline-dot" style="background:var(--amber);"></div><div class="timeline-content"><div class="t-text"><strong>Claimed daily reward</strong> - Day 6 streak (+40 Litties)</div><div class="t-time">Today, 8:30 AM</div></div></li>
+              <li class="timeline-item"><div class="timeline-dot" style="background:var(--primary);"></div><div class="timeline-content"><div class="t-text"><strong>Hit 50K milestone</strong> - Earned bonus notification</div><div class="t-time">Yesterday, 6:45 PM</div></div></li>
+              <li class="timeline-item"><div class="timeline-dot" style="background:var(--blue);"></div><div class="timeline-content"><div class="t-text"><strong>Referral converted</strong> - Pooja Desai signed up</div><div class="t-time">Apr 10, 2026</div></div></li>
+              <li class="timeline-item"><div class="timeline-dot" style="background:var(--teal);"></div><div class="timeline-content"><div class="t-text"><strong>Changed daily goal</strong> - 8,000 → 10,000 steps</div><div class="t-time">Apr 9, 2026</div></div></li>
+              <li class="timeline-item"><div class="timeline-dot" style="background:var(--green);"></div><div class="timeline-content"><div class="t-text"><strong>Updated weight</strong> - 74 kg → 72 kg</div><div class="t-time">Apr 7, 2026</div></div></li>
+              <li class="timeline-item"><div class="timeline-dot" style="background:var(--primary);"></div><div class="timeline-content"><div class="t-text"><strong>Uploaded profile photo</strong></div><div class="t-time">Apr 5, 2026</div></div></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Referrals -->
+      <div class="card">
+        <div class="card-head"><div><h3>Referral Network</h3><div class="sub">8 users referred via WERN-AP2847</div></div></div>
+        <div style="overflow-x:auto;">
+          <table class="tbl">
+            <thead><tr><th>User</th><th>Status</th><th>Steps</th><th>Litties</th><th>Joined</th></tr></thead>
+            <tbody>
+              <tr><td><div class="user-cell"><div class="user-ava" style="background:var(--teal);width:28px;height:28px;font-size:9px;">PD</div><div class="user-name">Pooja Desai</div></div></td><td><span class="badge active">Active</span></td><td>12,450</td><td>890</td><td>Apr 10, 2026</td></tr>
+              <tr><td><div class="user-cell"><div class="user-ava" style="background:var(--green);width:28px;height:28px;font-size:9px;">NK</div><div class="user-name">Neha Kapoor</div></div></td><td><span class="badge active">Active</span></td><td>8,920</td><td>560</td><td>Apr 5, 2026</td></tr>
+              <tr><td><div class="user-cell"><div class="user-ava" style="background:var(--amber);width:28px;height:28px;font-size:9px;color:#fff;">RS</div><div class="user-name">Raj Sinha</div></div></td><td><span class="badge active">Active</span></td><td>34,100</td><td>2,340</td><td>Mar 28, 2026</td></tr>
+              <tr><td><div class="user-cell"><div class="user-ava" style="background:#9CA3AF;width:28px;height:28px;font-size:9px;">AM</div><div class="user-name">Asha Malik</div></div></td><td><span class="badge inactive">Inactive</span></td><td>1,200</td><td>120</td><td>Mar 20, 2026</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-bg" id="user-edit-modal"><div class="modal">
+  <div class="modal-head"><h3>Edit User</h3><button class="modal-close"><i data-lucide="x" style="width:16px;height:16px;"></i></button></div>
+  <div class="modal-body">
+    <div class="frow"><div class="fg"><label class="fl">Full Name</label><input type="text" class="fi" value="Arjun Patel"></div><div class="fg"><label class="fl">Email</label><input type="email" class="fi" value="arjun.patel@email.com"></div></div>
+    <div class="frow"><div class="fg"><label class="fl">Phone</label><input type="text" class="fi" value="+91 98765 43210"></div><div class="fg"><label class="fl">Status</label><select class="fsel"><option selected>Active</option><option>Inactive</option><option>Banned</option></select></div></div>
+    <div class="frow"><div class="fg"><label class="fl">Daily Goal</label><input type="number" class="fi" value="10000"></div><div class="fg"><label class="fl">Activity Level</label><select class="fsel"><option>Beginner</option><option>Intermediate</option><option selected>Advanced</option></select></div></div>
+    <div class="fg"><label class="fl">Litties Adjustment</label><input type="number" class="fi" placeholder="Amount to add/subtract"><div class="fhint">Positive adds, negative deducts</div></div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-sec btn-sm" data-dismiss>Cancel</button><button class="btn btn-pri btn-sm" onclick="showToast('User updated','success')">Save</button></div>
+</div></div>
+
+<script src="js/app.js"></script>
+<script>
+  lucide.createIcons();
+
+  // User location map
+  document.addEventListener('DOMContentLoaded', function() {
+    var map = L.map('user-map', { scrollWheelZoom: false, zoomControl: false }).setView([25.197, 55.274], 14);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 18 }).addTo(map);
+    L.circleMarker([25.197, 55.274], { radius: 8, fillColor: '#22C55E', fillOpacity: .8, color: '#fff', weight: 2 }).addTo(map).bindPopup('<strong>Arjun Patel</strong><br>Last seen 2 min ago<br>Dubai Marina');
+    // Walking trail
+    L.polyline([[25.197,55.274],[25.196,55.272],[25.194,55.270],[25.193,55.268],[25.192,55.267],[25.190,55.266]], { color: '#003B4C', weight: 3, opacity: .5, dashArray: '6,8' }).addTo(map);
+
+    // Charts
+    setTimeout(function() {
+      if (typeof Chart === 'undefined') return;
+      new Chart(document.getElementById('stepHistChart'), { type:'bar', data:{ labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], datasets:[{data:[42000,38000,45000,51000,48000,52340,0],backgroundColor:['rgba(0,59,76,.4)','rgba(0,59,76,.4)','rgba(0,59,76,.4)','rgba(0,59,76,.4)','rgba(0,59,76,.4)','#003B4C','rgba(0,59,76,.15)'],borderRadius:4,borderSkipped:false,barThickness:22}]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,grid:{color:'rgba(0,0,0,.04)'},ticks:{font:{size:10},color:'#9CA3AF'}},x:{grid:{display:false},ticks:{font:{size:10},color:'#9CA3AF'}}}} });
+      new Chart(document.getElementById('causeChart'), { type:'doughnut', data:{ labels:['Forest','Water','Food','Women','Kids'], datasets:[{data:[45,25,15,10,5],backgroundColor:['#22C55E','#0E7490','#F59E0B','#EC4899','#003B4C'],borderWidth:0,spacing:2}]}, options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{position:'bottom',labels:{padding:10,usePointStyle:true,pointStyle:'circle',font:{size:10}}}}} });
+    }, 600);
+  });
+</script>
+</body>
+</html>

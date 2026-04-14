@@ -36,4 +36,5 @@ rootProject.name = 'WERN'
 expoAutolinking.useExpoVersionCatalog()
 
 include ':app'
+include ':wear'
 includeBuild(expoAutolinking.reactNativeGradlePlugin)

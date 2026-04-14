@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WERN Admin - Users</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><img src="img/logo.png" alt="WERN"><h2>WERN <span>Admin</span></h2></div>
+    <nav class="sidebar-nav">
+      <div class="nav-group"><div class="nav-label">Overview</div><a href="index.html" class="nav-item"><i data-lucide="layout-dashboard"></i> Dashboard</a><a href="analytics.html" class="nav-item"><i data-lucide="bar-chart-3"></i> Analytics</a></div>
+      <div class="nav-group"><div class="nav-label">Management</div><a href="users.html" class="nav-item active"><i data-lucide="users"></i> Users</a><a href="notifications.html" class="nav-item"><i data-lucide="bell"></i> Notifications</a><a href="transactions.html" class="nav-item"><i data-lucide="wallet"></i> Transactions</a><a href="referrals.html" class="nav-item"><i data-lucide="share-2"></i> Referrals</a></div>
+      <div class="nav-group"><div class="nav-label">Content</div><a href="causes.html" class="nav-item"><i data-lucide="heart"></i> Causes</a><a href="rewards.html" class="nav-item"><i data-lucide="gift"></i> Rewards</a><a href="content.html" class="nav-item"><i data-lucide="image"></i> Content</a></div>
+      <div class="nav-group"><div class="nav-label">System</div><a href="settings.html" class="nav-item"><i data-lucide="settings"></i> Settings</a></div>
+    </nav>
+    <div class="sidebar-footer"><a href="#" onclick="logout()" class="nav-item"><i data-lucide="log-out"></i> Logout</a></div>
+  </aside>
+
+  <div class="main">
+    <header class="header">
+      <div class="header-left"><button class="menu-toggle"><i data-lucide="menu" style="width:18px;height:18px;"></i></button><h1 class="page-title">Users</h1></div>
+      <div class="header-right"><div class="header-search"><i data-lucide="search"></i><input type="text" placeholder="Search..."></div><button class="icon-btn"><i data-lucide="bell" style="width:18px;height:18px;"></i><span class="dot"></span></button><div class="avatar-wrap"><div class="avatar" style="cursor:pointer;">A</div><div class="avatar-menu"><a href="settings.html"><i data-lucide="user"></i> Admin Profile</a><a href="settings.html"><i data-lucide="settings"></i> Settings</a><div class="divider"></div><button class="logout-item" onclick="logout()"><i data-lucide="log-out"></i> Logout</button></div></div></div>
+    </header>
+
+    <div class="content">
+      <div class="stats">
+        <div class="stat"><div class="stat-top"><div class="stat-icon primary"><i data-lucide="users"></i></div><span class="stat-badge up">+12.5%</span></div><div class="stat-val">2,847</div><div class="stat-lbl">Total Users</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon green"><i data-lucide="user-check"></i></div><span class="stat-badge up">+5.8%</span></div><div class="stat-val">1,423</div><div class="stat-lbl">Active Users</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon teal"><i data-lucide="user-plus"></i></div><span class="stat-badge up">+23%</span></div><div class="stat-val">86</div><div class="stat-lbl">New Today</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon red"><i data-lucide="user-x"></i></div><span class="stat-badge down">-1.2%</span></div><div class="stat-val">34</div><div class="stat-lbl">Inactive (7d)</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div><h3>All Users</h3><div class="sub">Manage registered users</div></div>
+          <button class="btn btn-sec btn-sm" onclick="exportData()"><i data-lucide="download" style="width:13px;height:13px;"></i> Export</button>
+        </div>
+        <div style="padding:14px 20px 0;">
+          <div class="toolbar">
+            <div class="toolbar-l">
+              <div class="filter-grp">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="active">Active</button>
+                <button class="filter-btn" data-filter="inactive">Inactive</button>
+                <button class="filter-btn" data-filter="banned">Banned</button>
+              </div>
+            </div>
+            <div class="toolbar-r"><div class="search-box"><i data-lucide="search" style="width:13px;height:13px;color:var(--text-muted);"></i><input type="text" class="tbl-search" placeholder="Search users..."></div></div>
+          </div>
+        </div>
+
+        <div data-loading="1200">
+          <div class="skel-wrap" style="padding:16px 20px;"><div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div></div>
+          <div class="load-content">
+            <div style="overflow-x:auto;">
+              <table class="tbl">
+                <thead><tr><th>User</th><th>Phone</th><th>Steps Today</th><th>Litties</th><th>Referrals</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+                <tbody>
+                  <tr data-cat="active"><td><div class="user-cell"><div class="user-ava" style="background:#6C5CE7;">AP</div><div><div class="user-name">Arjun Patel</div><div class="user-email">arjun.patel@email.com</div></div></div></td><td>+91 98765 43210</td><td><strong>52,340</strong></td><td>4,823</td><td>8</td><td><span class="badge active">Active</span></td><td>Jan 15, 2026</td><td><div class="flex gap-4"><button class="btn btn-ghost btn-icon btn-sm" onclick="location.href='user-detail.html'"><i data-lucide="eye" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="editUser(1)"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="deleteUser(1)"><i data-lucide="trash-2" style="width:14px;height:14px;color:var(--red);"></i></button></div></td></tr>
+                  <tr data-cat="active"><td><div class="user-cell"><div class="user-ava" style="background:#14B8A6;">PS</div><div><div class="user-name">Priya Sharma</div><div class="user-email">priya.sharma@email.com</div></div></div></td><td>+971 55 234 5678</td><td><strong>18,240</strong></td><td>2,156</td><td>3</td><td><span class="badge active">Active</span></td><td>Feb 3, 2026</td><td><div class="flex gap-4"><button class="btn btn-ghost btn-icon btn-sm" onclick="location.href='user-detail.html'"><i data-lucide="eye" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="editUser(2)"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="deleteUser(2)"><i data-lucide="trash-2" style="width:14px;height:14px;color:var(--red);"></i></button></div></td></tr>
+                  <tr data-cat="active"><td><div class="user-cell"><div class="user-ava" style="background:#22C55E;">RK</div><div><div class="user-name">Rahul Kumar</div><div class="user-email">rahul.kumar@email.com</div></div></div></td><td>+91 76543 21098</td><td><strong>38,120</strong></td><td>6,890</td><td>12</td><td><span class="badge active">Active</span></td><td>Dec 22, 2025</td><td><div class="flex gap-4"><button class="btn btn-ghost btn-icon btn-sm" onclick="viewUser(3)"><i data-lucide="eye" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="editUser(3)"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="deleteUser(3)"><i data-lucide="trash-2" style="width:14px;height:14px;color:var(--red);"></i></button></div></td></tr>
+                  <tr data-cat="inactive"><td><div class="user-cell"><div class="user-ava" style="background:#A1A1AA;">SJ</div><div><div class="user-name">Sneha Jain</div><div class="user-email">sneha.jain@email.com</div></div></div></td><td>+91 65432 10987</td><td><strong>0</strong></td><td>890</td><td>1</td><td><span class="badge inactive">Inactive</span></td><td>Mar 8, 2026</td><td><div class="flex gap-4"><button class="btn btn-ghost btn-icon btn-sm" onclick="viewUser(4)"><i data-lucide="eye" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="editUser(4)"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="deleteUser(4)"><i data-lucide="trash-2" style="width:14px;height:14px;color:var(--red);"></i></button></div></td></tr>
+                  <tr data-cat="active"><td><div class="user-cell"><div class="user-ava" style="background:#EC4899;">DM</div><div><div class="user-name">Divya Mehta</div><div class="user-email">divya.mehta@email.com</div></div></div></td><td>+91 54321 09876</td><td><strong>24,560</strong></td><td>3,445</td><td>5</td><td><span class="badge active">Active</span></td><td>Jan 28, 2026</td><td><div class="flex gap-4"><button class="btn btn-ghost btn-icon btn-sm" onclick="viewUser(5)"><i data-lucide="eye" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="editUser(5)"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="deleteUser(5)"><i data-lucide="trash-2" style="width:14px;height:14px;color:var(--red);"></i></button></div></td></tr>
+                  <tr data-cat="banned"><td><div class="user-cell"><div class="user-ava" style="background:#EF4444;">VG</div><div><div class="user-name">Vikram Gupta</div><div class="user-email">vikram.gupta@email.com</div></div></div></td><td>+91 43210 98765</td><td><strong>0</strong></td><td>12,450</td><td>0</td><td><span class="badge banned">Banned</span></td><td>Nov 10, 2025</td><td><div class="flex gap-4"><button class="btn btn-ghost btn-icon btn-sm" onclick="viewUser(6)"><i data-lucide="eye" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="editUser(6)"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button><button class="btn btn-ghost btn-icon btn-sm" onclick="deleteUser(6)"><i data-lucide="trash-2" style="width:14px;height:14px;color:var(--red);"></i></button></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="paging"><div class="paging-info">Showing 1-6 of 2,847</div><div class="paging-btns"><button class="pg-btn" disabled><i data-lucide="chevron-left" style="width:14px;height:14px;"></i></button><button class="pg-btn active">1</button><button class="pg-btn">2</button><button class="pg-btn">3</button><button class="pg-btn">...</button><button class="pg-btn">475</button><button class="pg-btn"><i data-lucide="chevron-right" style="width:14px;height:14px;"></i></button></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- User Detail Modal -->
+<div class="modal-bg" id="user-detail-modal"><div class="modal">
+  <div class="modal-head"><h3>User Details</h3><button class="modal-close"><i data-lucide="x" style="width:16px;height:16px;"></i></button></div>
+  <div class="modal-body">
+    <div style="text-align:center;margin-bottom:20px;"><div class="user-ava" style="width:52px;height:52px;font-size:20px;margin:0 auto 10px;background:#6C5CE7;">AP</div><h4 style="font-size:15px;">Arjun Patel</h4><p class="text-muted fs-sm">Member since Jan 15, 2026</p></div>
+    <div class="detail-grid">
+      <div class="detail-item"><label>Email</label><span>arjun.patel@email.com</span></div>
+      <div class="detail-item"><label>Phone</label><span>+91 98765 43210</span></div>
+      <div class="detail-item"><label>Total Steps</label><span>1,245,670</span></div>
+      <div class="detail-item"><label>Litties</label><span>4,823</span></div>
+      <div class="detail-item"><label>Daily Goal</label><span>10,000</span></div>
+      <div class="detail-item"><label>Activity Level</label><span>Advanced</span></div>
+      <div class="detail-item"><label>Referral Code</label><span class="mono">WERN-AP2847</span></div>
+      <div class="detail-item"><label>Referrals</label><span>8 users</span></div>
+    </div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-sec btn-sm" data-dismiss>Close</button><button class="btn btn-pri btn-sm" onclick="editUser(1)">Edit</button></div>
+</div></div>
+
+<!-- User Edit Modal -->
+<div class="modal-bg" id="user-edit-modal"><div class="modal">
+  <div class="modal-head"><h3>Edit User</h3><button class="modal-close"><i data-lucide="x" style="width:16px;height:16px;"></i></button></div>
+  <div class="modal-body">
+    <div class="frow"><div class="fg"><label class="fl">Full Name</label><input type="text" class="fi" value="Arjun Patel"></div><div class="fg"><label class="fl">Email</label><input type="email" class="fi" value="arjun.patel@email.com"></div></div>
+    <div class="frow"><div class="fg"><label class="fl">Phone</label><input type="text" class="fi" value="+91 98765 43210"></div><div class="fg"><label class="fl">Status</label><select class="fsel"><option selected>Active</option><option>Inactive</option><option>Banned</option></select></div></div>
+    <div class="frow"><div class="fg"><label class="fl">Daily Step Goal</label><input type="number" class="fi" value="10000"></div><div class="fg"><label class="fl">Activity Level</label><select class="fsel"><option>Beginner</option><option>Intermediate</option><option selected>Advanced</option></select></div></div>
+    <div class="fg"><label class="fl">Litties Adjustment</label><input type="number" class="fi" placeholder="Amount to add/subtract"><div class="fhint">Positive adds, negative deducts</div></div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-sec btn-sm" data-dismiss>Cancel</button><button class="btn btn-pri btn-sm" onclick="showToast('User updated','success')">Save</button></div>
+</div></div>
+
+<script src="js/app.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { StyleSheet, View, Image, Dimensions, ScrollView } from 'react-native';
+import { StyleSheet, View, Image, Dimensions, ScrollView, TouchableOpacity } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
@@ -7,7 +7,7 @@ const ITEM_WIDTH = width - 40;
 const ITEM_SPACING = 10;
 const SNAP_INTERVAL = ITEM_WIDTH + ITEM_SPACING;
 
-const BannerCarousel = ({ data, autoScrollInterval = 3000 }) => {
+const BannerCarousel = ({ data, autoScrollInterval = 3000, onPress }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollViewRef = useRef(null);
   const { colors } = useTheme();
@@ -37,9 +37,14 @@ const BannerCarousel = ({ data, autoScrollInterval = 3000 }) => {
   };
 
   const renderItem = (item, index) => (
-    <View key={item.id} style={styles.itemContainer}>
+    <TouchableOpacity
+      key={item.id}
+      style={styles.itemContainer}
+      activeOpacity={0.9}
+      onPress={() => onPress?.(item, index)}
+    >
       <Image source={item.image} style={styles.image} resizeMode="cover" />
-    </View>
+    </TouchableOpacity>
   );
 
   return (

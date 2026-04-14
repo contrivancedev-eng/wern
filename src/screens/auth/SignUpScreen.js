@@ -81,8 +81,12 @@ const SignUpScreen = ({ navigation }) => {
       showToast('Please enter a password');
       return false;
     }
-    if (password.length < 6) {
-      showToast('Password must be at least 6 characters');
+    if (password.length < 8) {
+      showToast('Password must be at least 8 characters');
+      return;
+    }
+    if (!/[A-Za-z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+      showToast('Password must include letters, numbers and a symbol');
       return false;
     }
     if (!confirmPassword) {
@@ -220,6 +224,36 @@ const SignUpScreen = ({ navigation }) => {
               </TouchableOpacity>
             </View>
 
+            {password.length > 0 && (() => {
+              const hasLen = password.length >= 8;
+              const hasLetter = /[A-Za-z]/.test(password);
+              const hasNumber = /\d/.test(password);
+              const hasSymbol = /[^A-Za-z0-9]/.test(password);
+              const score = [hasLen, hasLetter, hasNumber, hasSymbol].filter(Boolean).length;
+              const label = score <= 1 ? 'Weak' : score === 2 ? 'Fair' : score === 3 ? 'Good' : 'Strong';
+              const color = score <= 1 ? '#ef4444' : score === 2 ? '#f59e0b' : score === 3 ? '#facc15' : '#22c55e';
+              return (
+                <View style={styles.strengthWrap}>
+                  <View style={styles.strengthBars}>
+                    {[0, 1, 2, 3].map((i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.strengthBar,
+                          { backgroundColor: i < score ? color : 'rgba(255,255,255,0.18)' },
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <Text style={[styles.strengthLabel, { color }]}>{label}</Text>
+                </View>
+              );
+            })()}
+
+            <Text style={styles.strengthHint}>
+              Min. 8 chars (letters, numbers & symbols)
+            </Text>
+
             <Text style={styles.label}>Confirm Password <Text style={styles.required}>*</Text></Text>
             <View style={styles.passwordContainer}>
               <TextInput
@@ -338,6 +372,33 @@ const createStyles = (colors) => StyleSheet.create({
   },
   eyeButton: {
     paddingHorizontal: 16,
+  },
+  strengthWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  strengthBars: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  strengthBar: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+  },
+  strengthLabel: {
+    marginLeft: 10,
+    fontSize: 12,
+    fontWeight: '700',
+    minWidth: 50,
+    textAlign: 'right',
+  },
+  strengthHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: colors.textLight,
   },
   signUpButton: {
     marginTop: 24,

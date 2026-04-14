@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WERN Admin - Causes</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><img src="img/logo.png" alt="WERN"><h2>WERN <span>Admin</span></h2></div>
+    <nav class="sidebar-nav">
+      <div class="nav-group"><div class="nav-label">Overview</div><a href="index.html" class="nav-item"><i data-lucide="layout-dashboard"></i> Dashboard</a><a href="analytics.html" class="nav-item"><i data-lucide="bar-chart-3"></i> Analytics</a></div>
+      <div class="nav-group"><div class="nav-label">Management</div><a href="users.html" class="nav-item"><i data-lucide="users"></i> Users</a><a href="notifications.html" class="nav-item"><i data-lucide="bell"></i> Notifications</a><a href="transactions.html" class="nav-item"><i data-lucide="wallet"></i> Transactions</a><a href="referrals.html" class="nav-item"><i data-lucide="share-2"></i> Referrals</a></div>
+      <div class="nav-group"><div class="nav-label">Content</div><a href="causes.html" class="nav-item active"><i data-lucide="heart"></i> Causes</a><a href="rewards.html" class="nav-item"><i data-lucide="gift"></i> Rewards</a><a href="content.html" class="nav-item"><i data-lucide="image"></i> Content</a></div>
+      <div class="nav-group"><div class="nav-label">System</div><a href="settings.html" class="nav-item"><i data-lucide="settings"></i> Settings</a></div>
+    </nav>
+    <div class="sidebar-footer"><a href="#" onclick="logout()" class="nav-item"><i data-lucide="log-out"></i> Logout</a></div>
+  </aside>
+
+  <div class="main">
+    <header class="header">
+      <div class="header-left"><button class="menu-toggle"><i data-lucide="menu" style="width:18px;height:18px;"></i></button><h1 class="page-title">Causes</h1></div>
+      <div class="header-right"><div class="header-search"><i data-lucide="search"></i><input type="text" placeholder="Search..."></div><button class="icon-btn"><i data-lucide="bell" style="width:18px;height:18px;"></i><span class="dot"></span></button><div class="avatar-wrap"><div class="avatar" style="cursor:pointer;">A</div><div class="avatar-menu"><a href="settings.html"><i data-lucide="user"></i> Admin Profile</a><a href="settings.html"><i data-lucide="settings"></i> Settings</a><div class="divider"></div><button class="logout-item" onclick="logout()"><i data-lucide="log-out"></i> Logout</button></div></div></div>
+    </header>
+
+    <div class="content">
+      <div class="stats">
+        <div class="stat"><div class="stat-top"><div class="stat-icon green"><i data-lucide="heart"></i></div></div><div class="stat-val">5</div><div class="stat-lbl">Active Causes</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon teal"><i data-lucide="footprints"></i></div><span class="stat-badge up">+22%</span></div><div class="stat-val">18.4M</div><div class="stat-lbl">Total Steps</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon primary"><i data-lucide="users"></i></div></div><div class="stat-val">1,847</div><div class="stat-lbl">Contributors</div></div>
+        <div class="stat"><div class="stat-top"><div class="stat-icon blue"><i data-lucide="droplets"></i></div></div><div class="stat-val">13.8K</div><div class="stat-lbl">Litres of Water</div></div>
+      </div>
+
+      <div class="g2">
+        <div class="card" data-loading="1000">
+          <div class="card-head"><div><h3>Distribution</h3></div></div>
+          <div class="card-body"><div class="skel-wrap"><div class="skel skel-chart"></div></div><div class="load-content"><div class="chart-wrap" style="height:280px;"><canvas id="causesChart"></canvas></div></div></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h3>Actions</h3></div></div>
+          <div class="card-body">
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <button class="btn btn-sec" style="justify-content:flex-start;" data-modal="cause-modal"><i data-lucide="plus" style="width:15px;height:15px;"></i> Add New Cause</button>
+              <button class="btn btn-sec" style="justify-content:flex-start;"><i data-lucide="target" style="width:15px;height:15px;"></i> Update Goals</button>
+              <button class="btn btn-sec" style="justify-content:flex-start;"><i data-lucide="refresh-cw" style="width:15px;height:15px;"></i> Reset Monthly</button>
+              <button class="btn btn-sec" style="justify-content:flex-start;" onclick="exportData()"><i data-lucide="download" style="width:15px;height:15px;"></i> Export Report</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>All Causes</h3></div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">
+            <div class="cause-card" style="border-left:3px solid var(--green);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:10px;"><div class="stat-icon green" style="width:34px;height:34px;"><i data-lucide="tree-pine" style="width:16px;height:16px;"></i></div><strong>Forest Restoration</strong></div>
+                <label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+              </div>
+              <p class="text-muted fs-sm" style="margin-bottom:12px;">Planting trees and restoring forests worldwide.</p>
+              <div class="progress"><div class="progress-fill" style="width:72%;background:var(--green);"></div></div>
+              <div class="progress-meta"><span>6.2M / 8.5M</span><span>72%</span></div>
+              <div style="display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--text-muted);"><span><strong style="color:var(--text);">892</strong> walkers</span><span><strong style="color:var(--text);">4.6K</strong> litres</span></div>
+            </div>
+            <div class="cause-card" style="border-left:3px solid var(--blue);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:10px;"><div class="stat-icon blue" style="width:34px;height:34px;"><i data-lucide="droplets" style="width:16px;height:16px;"></i></div><strong>Clean Water</strong></div>
+                <label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+              </div>
+              <p class="text-muted fs-sm" style="margin-bottom:12px;">Providing clean drinking water to communities.</p>
+              <div class="progress"><div class="progress-fill" style="width:56%;background:var(--blue);"></div></div>
+              <div class="progress-meta"><span>4.8M / 8.5M</span><span>56%</span></div>
+              <div style="display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--text-muted);"><span><strong style="color:var(--text);">634</strong> walkers</span><span><strong style="color:var(--text);">3.6K</strong> litres</span></div>
+            </div>
+            <div class="cause-card" style="border-left:3px solid var(--amber);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:10px;"><div class="stat-icon amber" style="width:34px;height:34px;"><i data-lucide="wheat" style="width:16px;height:16px;"></i></div><strong>Food Security</strong></div>
+                <label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+              </div>
+              <p class="text-muted fs-sm" style="margin-bottom:12px;">Supporting food security and fighting hunger.</p>
+              <div class="progress"><div class="progress-fill" style="width:41%;background:var(--amber);"></div></div>
+              <div class="progress-meta"><span>3.5M / 8.5M</span><span>41%</span></div>
+              <div style="display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--text-muted);"><span><strong style="color:var(--text);">456</strong> walkers</span><span><strong style="color:var(--text);">2.6K</strong> litres</span></div>
+            </div>
+            <div class="cause-card" style="border-left:3px solid #EC4899;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:10px;"><div class="stat-icon" style="width:34px;height:34px;background:rgba(236,72,153,.08);color:#EC4899;"><i data-lucide="heart-handshake" style="width:16px;height:16px;"></i></div><strong>Women Empowerment</strong></div>
+                <label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+              </div>
+              <p class="text-muted fs-sm" style="margin-bottom:12px;">Women's education, health, and opportunities.</p>
+              <div class="progress"><div class="progress-fill" style="width:28%;background:#EC4899;"></div></div>
+              <div class="progress-meta"><span>2.4M / 8.5M</span><span>28%</span></div>
+              <div style="display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--text-muted);"><span><strong style="color:var(--text);">345</strong> walkers</span><span><strong style="color:var(--text);">1.8K</strong> litres</span></div>
+            </div>
+            <div class="cause-card" style="border-left:3px solid var(--primary);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:10px;"><div class="stat-icon primary" style="width:34px;height:34px;"><i data-lucide="baby" style="width:16px;height:16px;"></i></div><strong>Kids Walk (Labubu)</strong></div>
+                <label class="toggle"><input type="checkbox" checked><span class="toggle-track"></span></label>
+              </div>
+              <p class="text-muted fs-sm" style="margin-bottom:12px;">Encouraging children to stay active and healthy.</p>
+              <div class="progress"><div class="progress-fill" style="width:18%;background:var(--primary);"></div></div>
+              <div class="progress-meta"><span>1.5M / 8.5M</span><span>18%</span></div>
+              <div style="display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--text-muted);"><span><strong style="color:var(--text);">220</strong> walkers</span><span><strong style="color:var(--text);">1.2K</strong> litres</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="cause-modal"><div class="modal">
+  <div class="modal-head"><h3>Add Cause</h3><button class="modal-close"><i data-lucide="x" style="width:16px;height:16px;"></i></button></div>
+  <div class="modal-body">
+    <div class="fg"><label class="fl">Cause Name</label><input type="text" class="fi" placeholder="e.g., Ocean Cleanup"></div>
+    <div class="fg"><label class="fl">Description</label><textarea class="fta" placeholder="Describe the cause..."></textarea></div>
+    <div class="frow"><div class="fg"><label class="fl">Step Goal</label><input type="number" class="fi" value="8500000"></div><div class="fg"><label class="fl">Theme Color</label><input type="color" class="fi" value="#6C5CE7" style="height:38px;padding:4px;"></div></div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-sec btn-sm" data-dismiss>Cancel</button><button class="btn btn-pri btn-sm" onclick="showToast('Cause created','success')">Create</button></div>
+</div></div>
+
+<script src="js/app.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

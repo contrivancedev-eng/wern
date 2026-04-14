@@ -77,22 +77,38 @@ export const moderateScale = (size, factor = 0.5) => {
   return Math.round(size + (scaleWidth(size) - size) * factor);
 };
 
-// Font size presets for common use cases
+/**
+ * Small-phone-only scale. Uses *physical* pixel width so it stays
+ * stable when the user changes Android display zoom. Big phones
+ * (S23 Ultra / Pro Max ~1440 px wide) are unchanged; mid phones
+ * (6.1–6.5" ~1080 px wide) shrink to ~83%; very small phones floor at 75%.
+ * @param {number} size - The base size
+ * @returns {number} - Scaled size
+ */
+const PHYS_LARGE = 1250;
+const PHYS_FLOOR = 0.80;
+const physWidth = SCREEN_WIDTH * PixelRatio.get();
+export const smallScale = (size) => {
+  if (physWidth >= PHYS_LARGE) return size;
+  const factor = Math.max(PHYS_FLOOR, physWidth / PHYS_LARGE);
+  return Math.round(size * factor);
+};
+
+// Font size presets. Design is targeted at ~390dp width. On smaller
+// phones responsiveFont scales the value down (floored by min); on
+// larger phones it grows slightly (capped by max).
 export const fonts = {
-  // Titles
-  h1: responsiveFont(28, 24, 34),      // Main screen titles
-  h2: responsiveFont(22, 18, 26),      // Section titles
-  h3: responsiveFont(18, 16, 22),      // Card titles
-  h4: responsiveFont(16, 14, 18),      // Subsection titles
+  h1: responsiveFont(28, 22, 30),
+  h2: responsiveFont(22, 17, 24),
+  h3: responsiveFont(18, 14, 20),
+  h4: responsiveFont(16, 13, 17),
 
-  // Body text
-  body: responsiveFont(14, 12, 16),
-  bodySmall: responsiveFont(12, 11, 14),
-  caption: responsiveFont(11, 10, 12),
+  body: responsiveFont(14, 11, 15),
+  bodySmall: responsiveFont(12, 10, 13),
+  caption: responsiveFont(11, 9, 12),
 
-  // Special
-  button: responsiveFont(16, 14, 18),
-  label: responsiveFont(12, 10, 14),
+  button: responsiveFont(16, 13, 17),
+  label: responsiveFont(12, 9, 13),
 };
 
 // Export screen dimensions for convenience
