@@ -19,7 +19,7 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>1.1.1</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleURLTypes</key>
@@ -32,7 +32,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>5</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
 	<key>LSRequiresIPhoneOS</key>
@@ -45,7 +45,7 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Allow $(PRODUCT_NAME) to access your camera</string>
+	<string>WERN uses the camera so you can take a profile picture for your WERN account and capture photos to attach to walks and rewards (for example, a selfie after hitting your daily step goal).</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>WERN needs background location to continue counting steps when the app is in background.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
@@ -53,11 +53,13 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>WERN needs location access to track your walking progress.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Allow $(PRODUCT_NAME) to access your microphone</string>
+	<string>WERN uses the microphone only when you record a short audio clip to attach to a walk note (for example, a voice memo about your route). It is not used otherwise.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>WERN needs access to your motion sensors to accurately count your steps.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Allow $(PRODUCT_NAME) to access your photos</string>
+	<string>WERN accesses your photo library so you can choose an existing picture for your profile or attach a photo to a walk (for example, a snapshot from your route). Photos are only used in WERN and never uploaded without your action.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>WERN saves a photo to your library when you choose to export or share a WERN walk summary or reward card.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIBackgroundModes</key>

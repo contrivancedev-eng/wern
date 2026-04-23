@@ -15,7 +15,7 @@ import Icon from '../../components/Icon';
 import GradientBackground from '../../components/GradientBackground';
 import { apiFetch } from '../../utils/apiClient';
 
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 const formatTime = (createdAt) => {
   if (!createdAt) return '';
@@ -30,6 +30,28 @@ const formatTime = (createdAt) => {
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d ago`;
   return d.toLocaleDateString();
+};
+
+// Route each notification to a calm, purpose-built icon + accent colour
+// instead of a single yellow bell for everything.
+const categorize = (item, isDarkMode) => {
+  // In dark mode, muddy low-opacity pastels disappear into the card. Use
+  // a much more opaque tile so the icon reads cleanly on both themes.
+  const bg = (hex) => isDarkMode ? `${hex}33` : `${hex}1F`;
+  const haystack = `${item?.type || ''} ${item?.title || ''} ${item?.body || ''}`.toLowerCase();
+  if (/(reward|litti|coin|credit|earn|bonus|cashback)/.test(haystack))
+    return { icon: 'gift-outline', tint: '#22c55e', bg: bg('#22c55e') };
+  if (/(goal|milestone|streak|achieve|badge|level)/.test(haystack))
+    return { icon: 'trophy-outline', tint: '#a855f7', bg: bg('#a855f7') };
+  if (/(walk|step|distance|run|activity|move)/.test(haystack))
+    return { icon: 'walk', tint: '#3b82f6', bg: bg('#3b82f6') };
+  if (/(friend|refer|invite|share)/.test(haystack))
+    return { icon: 'people-outline', tint: '#06b6d4', bg: bg('#06b6d4') };
+  if (/(alert|warn|fail|error)/.test(haystack))
+    return { icon: 'alert-circle-outline', tint: '#ef4444', bg: bg('#ef4444') };
+  if (/(update|new|feature|announce)/.test(haystack))
+    return { icon: 'sparkles', tint: '#8b5cf6', bg: bg('#8b5cf6') };
+  return { icon: 'notifications-outline', tint: '#94a3b8', bg: bg('#94a3b8') };
 };
 
 const NotificationsScreen = () => {
@@ -111,31 +133,34 @@ const NotificationsScreen = () => {
 
   const styles = makeStyles(colors, isDarkMode);
 
-  const renderItem = ({ item }) => (
-    <TouchableOpacity
-      style={[styles.card, !item.is_read && styles.cardUnread]}
-      onPress={() => !item.is_read && markRead(item.id)}
-      activeOpacity={0.8}
-    >
-      <View style={styles.cardIconWrap}>
-        <Icon name="notifications" size={20} color={colors.secondary} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {item.title || 'Notification'}
-          </Text>
-          {!item.is_read ? <View style={styles.unreadDot} /> : null}
+  const renderItem = ({ item }) => {
+    const cat = categorize(item, isDarkMode);
+    return (
+      <TouchableOpacity
+        style={[styles.card, !item.is_read && styles.cardUnread]}
+        onPress={() => !item.is_read && markRead(item.id)}
+        activeOpacity={0.75}
+      >
+        {!item.is_read && <View style={[styles.unreadBar, { backgroundColor: cat.tint }]} />}
+        <View style={[styles.cardIconWrap, { backgroundColor: cat.bg }]}>
+          <Icon name={cat.icon} size={20} color={cat.tint} />
         </View>
-        {item.body ? (
-          <Text style={styles.cardBody} numberOfLines={3}>
-            {item.body}
-          </Text>
-        ) : null}
-        <Text style={styles.cardTime}>{formatTime(item.created_at)}</Text>
-      </View>
-    </TouchableOpacity>
-  );
+        <View style={{ flex: 1 }}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle} numberOfLines={1}>
+              {item.title || 'Notification'}
+            </Text>
+            <Text style={styles.cardTime}>{formatTime(item.created_at)}</Text>
+          </View>
+          {item.body ? (
+            <Text style={styles.cardBody} numberOfLines={3}>
+              {item.body}
+            </Text>
+          ) : null}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <GradientBackground showBlob={false}>
@@ -210,26 +235,30 @@ const makeStyles = (colors, isDarkMode) =>
     emptyText: { marginTop: 12, color: colors.textLight, fontSize: 14 },
     card: {
       flexDirection: 'row',
-      padding: 12,
+      alignItems: 'flex-start',
+      paddingVertical: 14,
+      paddingHorizontal: 14,
       marginBottom: 10,
-      borderRadius: 12,
+      borderRadius: 14,
       backgroundColor: colors.cardBackground,
-      borderWidth: 1,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.cardBorder,
+      overflow: 'hidden',
     },
     cardUnread: {
-      borderColor: colors.secondary,
       backgroundColor: isDarkMode
-        ? 'rgba(245, 166, 35, 0.08)'
-        : 'rgba(245, 166, 35, 0.12)',
+        ? 'rgba(255,255,255,0.04)'
+        : 'rgba(0,0,0,0.02)',
+    },
+    unreadBar: {
+      position: 'absolute',
+      left: 0, top: 0, bottom: 0,
+      width: 3,
     },
     cardIconWrap: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: isDarkMode
-        ? 'rgba(245, 166, 35, 0.15)'
-        : 'rgba(245, 166, 35, 0.18)',
+      width: 40,
+      height: 40,
+      borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: 12,
@@ -238,28 +267,21 @@ const makeStyles = (colors, isDarkMode) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      marginBottom: 2,
     },
     cardTitle: {
       flex: 1,
       fontSize: 14,
       fontWeight: '600',
       color: colors.textWhite,
-    },
-    unreadDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: colors.secondary,
-      marginLeft: 8,
+      marginRight: 8,
     },
     cardBody: {
-      marginTop: 4,
       fontSize: 13,
       color: colors.textLight,
       lineHeight: 18,
     },
     cardTime: {
-      marginTop: 6,
       fontSize: 11,
       color: colors.textMuted,
     },

@@ -9,7 +9,7 @@ import { Icon, Toast } from '../../components';
 import { useTheme, useAuth, useWalking } from '../../context';
 import { fonts } from '../../utils';
 
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 const activityLevels = ['Beginner', 'Intermediate', 'Advanced'];
 
 // Format large numbers (1000 -> 1k, 10000 -> 10k, etc.)
@@ -347,7 +347,9 @@ const DevicesSection = ({
 
 const ProfileScreen = () => {
   const { colors, isDarkMode } = useTheme();
-  const { user, token, refreshUserDetails, triggerDataRefresh } = useAuth();
+  const { user, token, refreshUserDetails, triggerDataRefresh, logout } = useAuth();
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { stepCount } = useWalking();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
   const [personalGoalExpanded, setPersonalGoalExpanded] = useState(false);
@@ -800,6 +802,37 @@ const ProfileScreen = () => {
   };
 
   // Change password API
+  const handleDeleteAccount = async () => {
+    const email = user?.email || user?.gmail;
+    if (!email) {
+      showToast('Could not find your account email.');
+      return;
+    }
+    try {
+      setIsDeleting(true);
+      const { apiFetch } = require('../../utils/apiClient');
+      const { json, response } = await apiFetch(
+        `${API_URL}delete-all-data`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ gmail: email, reason: '' }),
+        }
+      );
+      if (response?.ok || json?.status === true) {
+        setShowDeleteModal(false);
+        showToast('Account deletion requested. Logging out…');
+        setTimeout(() => { logout?.(); }, 1200);
+      } else {
+        showToast(json?.message || 'Deletion failed. Please try again.');
+      }
+    } catch (e) {
+      showToast('Something went wrong. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleChangePassword = async () => {
     if (!token) return;
 
@@ -1300,6 +1333,20 @@ const ProfileScreen = () => {
                 hours[h] = Number(b?.total_steps) || 0;
               }
             });
+          }
+
+          // If viewing today, the current hour lags up to ~30s behind the
+          // local step counter (save-step-event send cadence). Back-fill
+          // from live stepCount so the bar matches the live total shown
+          // elsewhere in the UI.
+          const todayObj = new Date();
+          const todayKey = `${todayObj.getFullYear()}-${String(todayObj.getMonth() + 1).padStart(2, '0')}-${String(todayObj.getDate()).padStart(2, '0')}`;
+          if (dateKey === todayKey && typeof stepCount === 'number') {
+            const currentHour = todayObj.getHours();
+            let pastSum = 0;
+            for (let i = 0; i < currentHour; i++) pastSum += hours[i] || 0;
+            const localCurrent = Math.max(0, stepCount - pastSum);
+            hours[currentHour] = Math.max(hours[currentHour], localCurrent);
           }
 
           setSelectedDayHourlyData(hours);
@@ -2165,32 +2212,109 @@ const ProfileScreen = () => {
           )}
         </View>
 
-        {/* Connected Devices / Wearable Section */}
-        <DevicesSection
-          styles={styles}
-          isDarkMode={isDarkMode}
-          colors={colors}
-          devicesExpanded={devicesExpanded}
-          setDevicesExpanded={setDevicesExpanded}
-          connectedWatch={connectedWatch}
-          isScanning={isScanning}
-          availableDevices={availableDevices}
-          hasScanned={hasScanned}
-          syncSteps={syncSteps}
-          setSyncSteps={setSyncSteps}
-          syncHeartRate={syncHeartRate}
-          setSyncHeartRate={setSyncHeartRate}
-          syncWalkControl={syncWalkControl}
-          setSyncWalkControl={setSyncWalkControl}
-          handleScanForDevices={handleScanForDevices}
-          handleConnectDevice={handleConnectDevice}
-          handleDisconnect={handleDisconnect}
-          handleManualConnect={handleManualConnect}
-          onCodeGenerated={(code) => { activePairingCode.current = code; }}
-        />
+        {/* Connected Devices / Wearable Section — hidden on iOS until Apple Watch
+            companion is wired up. The underlying native module only exists on
+            Android today, so showing the UI on iOS would advertise a feature
+            that can't actually pair a device. */}
+        {Platform.OS !== 'ios' && (
+          <DevicesSection
+            styles={styles}
+            isDarkMode={isDarkMode}
+            colors={colors}
+            devicesExpanded={devicesExpanded}
+            setDevicesExpanded={setDevicesExpanded}
+            connectedWatch={connectedWatch}
+            isScanning={isScanning}
+            availableDevices={availableDevices}
+            hasScanned={hasScanned}
+            syncSteps={syncSteps}
+            setSyncSteps={setSyncSteps}
+            syncHeartRate={syncHeartRate}
+            setSyncHeartRate={setSyncHeartRate}
+            syncWalkControl={syncWalkControl}
+            setSyncWalkControl={setSyncWalkControl}
+            handleScanForDevices={handleScanForDevices}
+            handleConnectDevice={handleConnectDevice}
+            handleDisconnect={handleDisconnect}
+            handleManualConnect={handleManualConnect}
+            onCodeGenerated={(code) => { activePairingCode.current = code; }}
+          />
+        )}
+
+        {/* Delete Account */}
+        <TouchableOpacity
+          style={styles.deleteAccountBtn}
+          onPress={() => setShowDeleteModal(true)}
+          activeOpacity={0.85}
+        >
+          <Icon name="trash-outline" size={18} color="#ffffff" />
+          <Text style={styles.deleteAccountText}>Delete Account</Text>
+        </TouchableOpacity>
 
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      {/* Delete Account Confirmation Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !isDeleting && setShowDeleteModal(false)}
+      >
+        <View style={styles.deleteOverlay}>
+          <View style={styles.deleteModal}>
+            <View style={styles.deleteIconWrap}>
+              <Icon name="alert-circle-outline" size={30} color="#ef4444" />
+            </View>
+            <Text style={styles.deleteTitle}>Delete Your Account?</Text>
+            <Text style={styles.deleteSubtitle}>
+              This action cannot be undone after the 30-day grace period.
+            </Text>
+
+            <View style={styles.deleteInfoBox}>
+              <Text style={styles.deleteInfoHeading}>What will be deleted</Text>
+              <Text style={styles.deleteInfoItem}>• Profile information</Text>
+              <Text style={styles.deleteInfoItem}>• Activity, walks and step history</Text>
+              <Text style={styles.deleteInfoItem}>• Uploaded content & preferences</Text>
+              <Text style={[styles.deleteInfoHeading, { marginTop: 10 }]}>Retained</Text>
+              <Text style={styles.deleteInfoItem}>
+                • Purchase history (for legal / financial compliance)
+              </Text>
+            </View>
+
+            <Text style={styles.deleteGraceText}>
+              Your account will be permanently deleted within 30 days. You can
+              cancel by logging back in within that period.
+            </Text>
+
+            <Text style={styles.deleteEmailLabel}>Deleting account for</Text>
+            <Text style={styles.deleteEmailValue} numberOfLines={1}>
+              {user?.email || user?.gmail || '—'}
+            </Text>
+
+            <View style={styles.deleteBtnRow}>
+              <TouchableOpacity
+                style={[styles.deleteCancelBtn, isDeleting && { opacity: 0.5 }]}
+                onPress={() => setShowDeleteModal(false)}
+                disabled={isDeleting}
+              >
+                <Text style={styles.deleteCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.deleteConfirmBtn, isDeleting && { opacity: 0.7 }]}
+                onPress={handleDeleteAccount}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.deleteConfirmText}>Delete Account</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Activity Level Dropdown Modal */}
       <Modal
@@ -2873,6 +2997,96 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   },
   bottomPadding: {
     height: 150,
+  },
+  deleteAccountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    marginTop: 20,
+    marginHorizontal: 20,
+    borderRadius: 999,
+    backgroundColor: '#ef4444',
+  },
+  deleteAccountText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  deleteOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  deleteModal: {
+    backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
+    borderRadius: 16,
+    padding: 22,
+  },
+  deleteIconWrap: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: 'rgba(239,68,68,0.15)',
+    alignItems: 'center', justifyContent: 'center',
+    alignSelf: 'center', marginBottom: 12,
+  },
+  deleteTitle: {
+    fontSize: 18, fontWeight: '700',
+    color: isDarkMode ? '#ffffff' : '#111827',
+    textAlign: 'center', marginBottom: 6,
+  },
+  deleteSubtitle: {
+    fontSize: 13, lineHeight: 18,
+    color: isDarkMode ? 'rgba(255,255,255,0.7)' : '#4b5563',
+    textAlign: 'center', marginBottom: 16,
+  },
+  deleteInfoBox: {
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#f9fafb',
+    borderRadius: 10, padding: 12, marginBottom: 12,
+  },
+  deleteInfoHeading: {
+    fontSize: 12, fontWeight: '700',
+    color: isDarkMode ? '#fca5a5' : '#b91c1c',
+    marginBottom: 4,
+  },
+  deleteInfoItem: {
+    fontSize: 12, lineHeight: 18,
+    color: isDarkMode ? 'rgba(255,255,255,0.75)' : '#4b5563',
+  },
+  deleteGraceText: {
+    fontSize: 11, lineHeight: 16,
+    color: isDarkMode ? 'rgba(255,255,255,0.55)' : '#6b7280',
+    textAlign: 'center', marginBottom: 14,
+  },
+  deleteEmailLabel: {
+    fontSize: 11, fontWeight: '600',
+    color: isDarkMode ? 'rgba(255,255,255,0.55)' : '#6b7280',
+    textAlign: 'center',
+  },
+  deleteEmailValue: {
+    fontSize: 13, fontWeight: '600',
+    color: isDarkMode ? '#ffffff' : '#111827',
+    textAlign: 'center', marginBottom: 18,
+  },
+  deleteBtnRow: {
+    flexDirection: 'row', gap: 10,
+  },
+  deleteCancelBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: 10,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : '#f3f4f6',
+    alignItems: 'center',
+  },
+  deleteCancelText: {
+    fontSize: 14, fontWeight: '600',
+    color: isDarkMode ? '#ffffff' : '#111827',
+  },
+  deleteConfirmBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: 10,
+    backgroundColor: '#ef4444', alignItems: 'center',
+  },
+  deleteConfirmText: {
+    fontSize: 14, fontWeight: '700', color: '#ffffff',
   },
   // ─── Connected Devices Styles ───
   wEmptyHero: {

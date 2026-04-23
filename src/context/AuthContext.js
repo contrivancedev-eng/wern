@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AuthContext = createContext();
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 // Fetch litties balance from API
 const fetchLittiesBalance = async (authToken) => {

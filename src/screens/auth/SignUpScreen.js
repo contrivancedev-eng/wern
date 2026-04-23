@@ -6,7 +6,7 @@ import { GradientBackground, GlassCard, GradientButton, PhoneInput, Icon, Toast 
 import { useTheme } from '../../context/ThemeContext';
 import { fonts } from '../../utils';
 
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 // Map ISO country codes to phone country codes
 const countryCodeMap = {

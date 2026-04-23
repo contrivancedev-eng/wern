@@ -5,7 +5,7 @@ import { GradientBackground, GlassCard, GradientButton, Icon, Toast } from '../.
 import { useTheme } from '../../context/ThemeContext';
 import { fonts } from '../../utils';
 
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 const ResetPasswordScreen = ({ navigation, route }) => {
   const { token, email } = route.params || {};

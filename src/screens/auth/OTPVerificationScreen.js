@@ -6,7 +6,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { fonts } from '../../utils';
 
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 const OTPVerificationScreen = ({ navigation, route }) => {
   const { email, fromForgotPassword } = route.params || { email: 'user@example.com' };

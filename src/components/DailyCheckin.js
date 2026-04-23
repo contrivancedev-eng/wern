@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { smallScale } from '../utils/responsive';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 const WavyBorder = ({ style }) => (
   <Svg width="100%" height="16" viewBox="0 0 360 16" preserveAspectRatio="none" style={style}>

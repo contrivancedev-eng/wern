@@ -9,15 +9,17 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
+  StatusBar,
+  Platform,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   subscribe,
   getEntries,
   clearEntries,
 } from '../utils/networkLogger';
 
-export const DEV_MENU_ENABLED = true;
+export const DEV_MENU_ENABLED = false;
 
 // Imperative opener — the mounted DevMenu registers its setState here so
 // other parts of the app (e.g. a hidden logo-tap trigger) can open it.
@@ -54,6 +56,7 @@ const DevMenu = () => {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState(getEntries());
   const [selectedId, setSelectedId] = useState(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => subscribe((list) => setEntries([...list])), []);
 
@@ -75,9 +78,11 @@ const DevMenu = () => {
         visible={open}
         animationType="slide"
         onRequestClose={() => setOpen(false)}
+        statusBarTranslucent={false}
       >
-        <SafeAreaView style={styles.modal}>
-          <View style={styles.header}>
+        <StatusBar barStyle="light-content" backgroundColor="#0b1220" />
+        <SafeAreaView style={styles.modal} edges={['top', 'bottom', 'left', 'right']}>
+          <View style={[styles.header, Platform.OS === 'android' && { paddingTop: insets.top + 8 }]}>
             <Text style={styles.title}>Network ({entries.length})</Text>
             <View style={{ flexDirection: 'row' }}>
               <TouchableOpacity onPress={clearEntries} style={styles.headerBtn}>

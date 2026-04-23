@@ -246,6 +246,33 @@ export const showMilestoneNotification = async (steps) => {
   }
 };
 
+// Show a heads-up notification for a server notification delivered via the
+// in-app notifications API. Uses the HIGH-importance 'milestone' channel so
+// Android shows it as a heads-up banner (same treatment as a real push).
+export const showServerNotification = async ({ id, title, body, data }) => {
+  if (Platform.OS === 'web') return;
+  try {
+    const content = {
+      title: title || 'New notification',
+      body: body || '',
+      data: { type: 'inbox', id, ...(data || {}) },
+      sound: 'default',
+    };
+    if (Platform.OS === 'android') {
+      content.channelId = 'milestone';
+      content.priority = 'high';
+      content.color = '#3b82f6';
+    }
+    await Notifications.scheduleNotificationAsync({
+      identifier: `inbox-${id || Date.now()}`,
+      content,
+      trigger: null,
+    });
+  } catch (error) {
+    console.log('❌ showServerNotification failed:', error?.message || error);
+  }
+};
+
 // Check if notifications are enabled
 export const areNotificationsEnabled = async () => {
   if (Platform.OS === 'web') return false;
@@ -296,4 +323,5 @@ export default {
   showMilestoneNotification,
   getScheduledNotifications,
   getPresentedNotifications,
+  showServerNotification,
 };

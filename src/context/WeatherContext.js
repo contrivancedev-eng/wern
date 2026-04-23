@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import * as Location from 'expo-location';
 
 const WeatherContext = createContext();
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 const WEATHER_REFRESH_INTERVAL = 5 * 60 * 1000; // Refresh every 5 minutes
 
 export const useWeather = () => {

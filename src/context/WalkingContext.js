@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { AppState, Platform } from 'react-native';
 import { Accelerometer, Pedometer } from 'expo-sensors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import StepCounterService from '../services/StepCounterService';
 import NotificationService from '../services/NotificationService';
 import BackgroundStepService from '../services/BackgroundStepService';
@@ -10,14 +11,23 @@ import PermissionService from '../services/PermissionService';
 
 const WalkingContext = createContext();
 
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 // Local queue for step events that failed to reach the server (e.g. offline
-// mid-walk). Flushed opportunistically on the next successful post.
+// mid-walk). Flushed opportunistically on the next successful post OR when
+// NetInfo reports the device has regained internet connectivity.
 const PENDING_EVENTS_KEY = '@wern_pending_step_events';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { apiFetch } = require('../utils/apiClient');
+
+// Client-generated idempotency key. Backend should dedupe on event_id so
+// retries after a flaky network (POST succeeded server-side but response
+// timed out) can't double-credit steps.
+const generateEventId = () => {
+  const rand = () => Math.random().toString(16).slice(2, 10);
+  return `${rand()}${rand()}-${Date.now().toString(16)}`;
+};
 
 const readPendingEvents = async () => {
   try {
@@ -35,6 +45,11 @@ const writePendingEvents = async (list) => {
     // Silent
   }
 };
+
+// Prevents concurrent flushes from e.g. a NetInfo reconnect event firing
+// at the same time as a 30s walk-tick flush. Without this guard, both
+// would read the queue, re-send events, and write stale data back.
+let flushingQueue = false;
 
 // Fetch the authoritative daily totals (steps, km, kcal, litres, goal)
 // from get-digital-vault-data. Returns range_summary on success, else null.
@@ -55,23 +70,36 @@ const fetchDailyStats = async (token) => {
   }
 };
 
-const sendStepEventOnce = async ({ token, categoryId, steps, location, timestamp }) => {
+const SAVE_STEP_TIMEOUT_MS = 15000;
+
+const sendStepEventOnce = async ({ token, categoryId, steps, location, timestamp, eventId }) => {
   const fd = new FormData();
   fd.append('token', token);
   fd.append('category_id', String(categoryId));
   fd.append('steps', String(steps));
   fd.append('timestamp', String(timestamp ?? Math.floor(Date.now() / 1000)));
   fd.append('type', 'walk');
+  if (eventId) fd.append('event_id', eventId);
   if (location?.lat != null) fd.append('lat', String(location.lat));
   if (location?.lng != null) fd.append('lng', String(location.lng));
 
-  const { json } = await apiFetch(`${API_URL}save-step-event`, {
-    method: 'POST',
-    body: fd,
-    headers: { Accept: 'application/json' },
-  });
-  if (json?.status === true && json?.data) return json.data;
-  return null;
+  // Abort the request if the server takes longer than SAVE_STEP_TIMEOUT_MS.
+  // Without this, a stalled POST blocks all future ticks behind the
+  // in-flight guard and the UI appears to stop syncing.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SAVE_STEP_TIMEOUT_MS);
+  try {
+    const { json } = await apiFetch(`${API_URL}save-step-event`, {
+      method: 'POST',
+      body: fd,
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (json?.status === true && json?.data) return json.data;
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 // Send a step delta. If it fails, queue it to AsyncStorage so we don't
@@ -80,43 +108,60 @@ const sendStepEventOnce = async ({ token, categoryId, steps, location, timestamp
 const postStepEvent = async ({ token, categoryId, steps, location }) => {
   if (!token || !categoryId || !steps || steps <= 0) return null;
   const timestamp = Math.floor(Date.now() / 1000);
+  const eventId = generateEventId();
 
   try {
-    const data = await sendStepEventOnce({ token, categoryId, steps, location, timestamp });
+    const data = await sendStepEventOnce({ token, categoryId, steps, location, timestamp, eventId });
     if (data) {
       // Success — flush any queued events in the background.
       flushPendingEvents(token).catch(() => {});
       return data;
     }
     // Server returned non-success body but no throw: queue for retry.
-    await enqueuePending({ categoryId, steps, location, timestamp });
+    await enqueuePending({ categoryId, steps, location, timestamp, eventId });
     return null;
   } catch (e) {
     console.log('save-step-event failed, queuing for retry:', e?.message);
-    await enqueuePending({ categoryId, steps, location, timestamp });
+    await enqueuePending({ categoryId, steps, location, timestamp, eventId });
     return null;
   }
 };
 
 const enqueuePending = async (event) => {
   const list = await readPendingEvents();
+  // Ensure every queued event carries an idempotency key even if the caller
+  // forgot (legacy entries written before the event_id change, for example).
+  if (!event.eventId) event.eventId = generateEventId();
   list.push(event);
   await writePendingEvents(list);
 };
 
 const flushPendingEvents = async (token) => {
-  const list = await readPendingEvents();
-  if (!list.length) return;
-  const remaining = [];
-  for (const ev of list) {
-    try {
-      const data = await sendStepEventOnce({ token, ...ev });
-      if (!data) remaining.push(ev);
-    } catch {
-      remaining.push(ev);
+  if (!token) return;
+  // Guard against concurrent flushes (e.g. NetInfo reconnect firing at the
+  // same time as a 30s walk-tick flush). Both would read the queue, resend
+  // events, and write stale data back.
+  if (flushingQueue) return;
+  flushingQueue = true;
+  try {
+    const list = await readPendingEvents();
+    if (!list.length) return;
+    const remaining = [];
+    for (const ev of list) {
+      try {
+        const data = await sendStepEventOnce({ token, ...ev });
+        if (!data) remaining.push(ev);
+      } catch {
+        // Keep the event for the next reconnect/tick. The server dedupes
+        // on event_id so a later retry won't double-credit steps even if
+        // this POST actually reached the server.
+        remaining.push(ev);
+      }
     }
+    await writePendingEvents(remaining);
+  } finally {
+    flushingQueue = false;
   }
-  await writePendingEvents(remaining);
 };
 
 // Storage key functions - include user ID for multi-account support
@@ -161,6 +206,42 @@ const saveToDailyStepLog = async (dateString, steps, km, kcal, goal) => {
 // Default daily step goal
 const DEFAULT_GOAL_STEPS = 10000;
 
+// Sanity ceilings to catch runaway step counts — usually caused on iOS
+// by CMPedometer returning inflated totals (HealthKit / iCloud sync
+// edge cases) which then compound with our additive session logic +
+// Math.max floor-never-goes-down persistence. World record for steps
+// in a single day is ~100k; anything above MAX_DAILY_STEPS is definitely
+// a data bug, so we clamp rather than show 3.8 million.
+const MAX_DAILY_STEPS = 150000;
+// Max new steps in one pedometer tick. Real humans top out around ~4
+// steps per second (~240/min). We budget generously for ticks that may
+// bundle a few seconds of motion; anything larger indicates a bad
+// CMPedometer reading or a corrupted baseline and is rejected.
+const MAX_STEPS_PER_TICK = 1000;
+
+// If AsyncStorage / state claims the user has more than MAX_DAILY_STEPS
+// today, the value is corrupted. Returns a number that is safe to use.
+const sanitizeStepCount = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  if (n > MAX_DAILY_STEPS) return 0; // treat corrupted as fresh
+  return n;
+};
+
+// Apply the per-tick jump cap and the absolute ceiling. Used inside
+// every setStepCount that comes from the pedometer path.
+const clampStepUpdate = (prev, next) => {
+  if (!Number.isFinite(next) || next < 0) return prev;
+  const capped = Math.min(next, MAX_DAILY_STEPS);
+  // If the new value is HUGE relative to previous, reject (sliding
+  // window for bursts is MAX_STEPS_PER_TICK at 1s tick cadence).
+  if (capped - prev > MAX_STEPS_PER_TICK) {
+    console.log(`⚠️ Rejected implausible step jump: ${prev} → ${capped}`);
+    return prev;
+  }
+  return Math.max(prev, capped);
+};
+
 export const WalkingProvider = ({ children }) => {
   const [isWalking, setIsWalking] = useState(false);
   const [stepCount, setStepCount] = useState(0);
@@ -171,30 +252,113 @@ export const WalkingProvider = ({ children }) => {
   const [goalSteps, setGoalSteps] = useState(DEFAULT_GOAL_STEPS);
   const [currentUserIdState, setCurrentUserIdState] = useState(null);
 
-  // Stats — server is the source of truth. The save-step-event response
-  // returns the authoritative kilometre / kcal / litres for today, so we
-  // store them as state and update from each API response. We fall back to
-  // a local estimate until the first response arrives.
+  // Stats — UI tracks live locally-computed km / kcal / litres on every
+  // step tick so the numbers never freeze between server syncs. Server
+  // responses are still used to adopt authoritative totals for the day
+  // (via the serverOffset refs below), but the per-step UI is always
+  // live. Same formulas as the backend so client/server don't drift.
   const [litres, setLitres] = useState('0.00');
   const [kilometre, setKilometre] = useState('0.00');
   const [kcal, setKcal] = useState(0);
-  const hasServerStats = useRef(false);
 
-  // Local estimate used only until the first API response arrives (or if
-  // the request fails). Matches the backend formulas.
+  // Offsets captured from the latest save-step-event ack, so we can
+  // reconstruct server-authoritative totals from current stepCount. If
+  // the server says 4.38 km at 5846 steps, and the user walks another
+  // 100 steps, the UI should show 4.38 + (100 * stride/1000) km. We
+  // store `{ stepsAtAck, valueAtAck }` for each metric.
+  const kmServerAnchor = useRef(null);
+  const kcalServerAnchor = useRef(null);
+  const litresServerAnchor = useRef(null);
+
   const calculateKilometre = (steps) => {
     const STRIDE_LENGTH_METERS = 0.75;
     return ((steps * STRIDE_LENGTH_METERS) / 1000).toFixed(2);
   };
   const calculateKcal = (steps) => Math.round(steps * 0.05);
+  // Server grants ~1 litre per 100 steps (matches the ack returned for
+  // early walks). We compute locally so the UI doesn't stall between
+  // ticks; the number is corrected by the server anchor once a fresh
+  // ack arrives.
+  const calculateLitres = (steps) => (Math.floor(steps / 100)).toFixed(2);
 
-  // Keep the local fallback in sync with stepCount until the server takes over.
+  const anchoredKilometre = (steps) => {
+    const a = kmServerAnchor.current;
+    if (!a) return calculateKilometre(steps);
+    const deltaSteps = Math.max(0, steps - a.stepsAtAck);
+    return (Number(a.valueAtAck) + (deltaSteps * 0.75) / 1000).toFixed(2);
+  };
+  const anchoredKcal = (steps) => {
+    const a = kcalServerAnchor.current;
+    if (!a) return calculateKcal(steps);
+    const deltaSteps = Math.max(0, steps - a.stepsAtAck);
+    return Math.round(Number(a.valueAtAck) + deltaSteps * 0.05);
+  };
+  const anchoredLitres = (steps) => {
+    const a = litresServerAnchor.current;
+    if (!a) return calculateLitres(steps);
+    const deltaSteps = Math.max(0, steps - a.stepsAtAck);
+    return (Number(a.valueAtAck) + Math.floor(deltaSteps / 100)).toFixed(2);
+  };
+
+  // Recompute every metric whenever the step count changes — no
+  // `hasServerStats` gate. The UI reflects the latest count + the
+  // latest server anchor. Without this, km/kcal/litres froze at the
+  // last ack value while the step count kept climbing.
   useEffect(() => {
-    if (!hasServerStats.current) {
-      setKilometre(calculateKilometre(stepCount));
-      setKcal(calculateKcal(stepCount));
-    }
+    setKilometre(anchoredKilometre(stepCount));
+    setKcal(anchoredKcal(stepCount));
+    setLitres(anchoredLitres(stepCount));
   }, [stepCount]);
+
+  // Apply an authoritative server payload (from save-step-event ack or
+  // get-digital-vault-data summary) by anchoring each metric to the
+  // step count at the time of the ack. Later step increments extend
+  // the anchor locally via calculate* formulas.
+  //
+  // Safety clause: the server can be stale (especially when the sync
+  // interval hasn't been running), so each server value is taken as
+  // max(server, local_formula_at_stepsAtAck). That way a stale ack
+  // can only ADD information, never downgrade the displayed number.
+  const applyServerAnchors = (data, stepsAtAck) => {
+    if (!data) return;
+    if (data.goal && data.goal > 0) setGoalSteps(data.goal);
+    if (data.kilometre !== undefined && data.kilometre !== null) {
+      const v = typeof data.kilometre === 'number' ? data.kilometre : Number(data.kilometre);
+      if (!Number.isNaN(v)) {
+        const localAtAck = Number(calculateKilometre(stepsAtAck));
+        const merged = Math.max(v, localAtAck);
+        kmServerAnchor.current = { stepsAtAck, valueAtAck: merged };
+        setKilometre(anchoredKilometre(stepsAtAck));
+      }
+    }
+    if (data.kcal !== undefined && data.kcal !== null) {
+      const v = typeof data.kcal === 'number' ? data.kcal : Number(data.kcal);
+      if (!Number.isNaN(v)) {
+        const localAtAck = calculateKcal(stepsAtAck);
+        const merged = Math.max(v, localAtAck);
+        kcalServerAnchor.current = { stepsAtAck, valueAtAck: merged };
+        setKcal(anchoredKcal(stepsAtAck));
+      }
+    }
+    const litresValue = data.litres ?? data.liters ?? data.water;
+    if (litresValue !== undefined && litresValue !== null) {
+      const v = typeof litresValue === 'number' ? litresValue : Number(litresValue);
+      if (!Number.isNaN(v)) {
+        const localAtAck = Number(calculateLitres(stepsAtAck));
+        const merged = Math.max(v, localAtAck);
+        litresServerAnchor.current = { stepsAtAck, valueAtAck: merged };
+        setLitres(anchoredLitres(stepsAtAck));
+      }
+    }
+  };
+
+  // Reset anchors — use on midnight rollover, stopWalking, or manual
+  // reset so stale server totals don't leak into a new day.
+  const resetServerAnchors = () => {
+    kmServerAnchor.current = null;
+    kcalServerAnchor.current = null;
+    litresServerAnchor.current = null;
+  };
 
   // Get storage keys for current user
   const storageKeys = useRef(getStorageKeys(null));
@@ -226,15 +390,36 @@ export const WalkingProvider = ({ children }) => {
   const currentLocation = useRef({ lat: 0, lng: 0 });
   const lastSocketSendTime = useRef(0);
   const socketSendInterval = useRef(null);
+  // Holds a reference to the sync tick closure so callers outside the
+  // interval (AppState foreground, step-threshold triggers) can fire
+  // it on demand without duplicating the tick logic.
+  const syncTickRef = useRef(null);
+  // Step count at the last out-of-band tick trigger, to avoid
+  // hammering the API on every pedometer update.
+  const lastTriggerSteps = useRef(0);
+  const STEP_TRIGGER_THRESHOLD = 25;
+  // In-flight guard — prevents overlapping save-step-event POSTs from
+  // piling up if the server is slow. Paired with the 15s timeout in
+  // sendStepEventOnce so a hang can't block future ticks forever. We
+  // also record the start time so an independent watchdog can recover
+  // if the POST somehow throws asynchronously without resetting the flag.
+  const saveInFlight = useRef(false);
+  const saveInFlightStart = useRef(0);
   const currentSessionSteps = useRef(0); // Ref to track current session steps for socket
   const currentCauseId = useRef(null); // Ref to track current cause for socket
   const lastSentSteps = useRef(0); // Track last sent steps to avoid duplicate sends
   const currentStepCountRef = useRef(0); // Ref to track total step count for saving
-  // Push accumulated step delta every 2 minutes. Between flushes steps live
-  // in AsyncStorage + in-memory refs; the offline queue (`enqueuePending`)
-  // covers network failures, and stopWalking / AppState background also
-  // trigger an immediate flush so we never lose more than ~2min of credit.
-  const SOCKET_SEND_INTERVAL = 120000;
+  // Tight periodic sync — fires every 3 seconds while walking. Between
+  // ticks steps live in AsyncStorage + in-memory refs; the offline
+  // queue (`enqueuePending`) covers network failures, and stopWalking
+  // / AppState background also trigger an immediate flush so we never
+  // lose more than a few seconds of server credit.
+  const SOCKET_SEND_INTERVAL = 3000;
+  // Any in-flight POST older than this is considered stuck and gets
+  // its flag forcibly cleared so new ticks can fire. The 15s timeout
+  // inside sendStepEventOnce normally handles this, but we add a
+  // fallback watchdog in case something bypasses the finally block.
+  const SAVE_INFLIGHT_MAX_AGE_MS = 20000;
 
   // Session restore tracking
   const isRestoredSession = useRef(false); // Track if current session was restored from storage
@@ -287,7 +472,9 @@ export const WalkingProvider = ({ children }) => {
         restoredStepCount.current = 0;
         lastPedometerSteps.current = 0;
 
-        // Reset litres (km/kcal are calculated from stepCount)
+        // Reset stats + clear server anchors so yesterday's authoritative
+        // totals don't leak into today's live calculations.
+        resetServerAnchors();
         setLitres('0.00');
 
         // Save the reset
@@ -369,7 +556,9 @@ export const WalkingProvider = ({ children }) => {
         restoredStepCount.current = 0;
         lastPedometerSteps.current = 0;
 
-        // Reset litres (km/kcal are calculated from stepCount)
+        // Reset stats + clear server anchors so yesterday's authoritative
+        // totals don't leak into today's live calculations.
+        resetServerAnchors();
         setLitres('0.00');
 
         const today = getTodayDateString();
@@ -412,6 +601,22 @@ export const WalkingProvider = ({ children }) => {
     };
   }, []);
 
+  // Flush any offline-queued step events the moment the device regains
+  // internet. Without this the queue sits until the next walk-tick or
+  // app-foreground, so a user who stops walking offline and closes the
+  // app could wait hours before their steps reach the backend.
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      if (state.isConnected && state.isInternetReachable !== false) {
+        const token = currentToken.current;
+        if (token) {
+          flushPendingEvents(token).catch(() => {});
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Initialize
   useEffect(() => {
     const init = async () => {
@@ -451,7 +656,11 @@ export const WalkingProvider = ({ children }) => {
           if (isFreshEnough) {
             setIsWalking(true);
             setActiveCause(state.activeCause);
-            sessionStartSteps.current = state.sessionStartSteps || 0;
+            // Mirror the cause into the ref so the 3s save-step-event
+            // tick can actually fire — without this, the tick sees
+            // `currentCauseId.current === null` and bails every time.
+            currentCauseId.current = state.activeCause;
+            sessionStartSteps.current = sanitizeStepCount(state.sessionStartSteps || 0);
 
             // CRITICAL: Use NOW as the walking start time for restored sessions
             // The old start time from storage won't work because pedometer can't
@@ -459,7 +668,7 @@ export const WalkingProvider = ({ children }) => {
             walkingStartTime.current = new Date();
 
             // Restore session steps
-            const savedSessionSteps = state.sessionSteps || 0;
+            const savedSessionSteps = sanitizeStepCount(state.sessionSteps || 0);
             if (savedSessionSteps > 0) {
               setSessionSteps(savedSessionSteps);
             }
@@ -468,10 +677,11 @@ export const WalkingProvider = ({ children }) => {
             // If the native foreground service kept running while the app
             // was killed/backgrounded, its `currentSteps` is the source of
             // truth — take the max so we never lose steps counted while
-            // the JS side was dead.
-            let totalStepsRestored = (state.sessionStartSteps || 0) + savedSessionSteps;
+            // the JS side was dead. Sanitize every input so a corrupted
+            // value from any source doesn't seed the new session.
+            let totalStepsRestored = sanitizeStepCount(state.sessionStartSteps || 0) + savedSessionSteps;
             try {
-              const nativeSteps = await BackgroundStepService.getCurrentStepCount();
+              const nativeSteps = sanitizeStepCount(await BackgroundStepService.getCurrentStepCount());
               if (nativeSteps && nativeSteps > totalStepsRestored) {
                 console.log('📱 Native service has more steps than AsyncStorage:', nativeSteps, '>', totalStepsRestored);
                 totalStepsRestored = nativeSteps;
@@ -479,6 +689,7 @@ export const WalkingProvider = ({ children }) => {
             } catch (e) {
               console.log('Error reading native step count on restore:', e?.message);
             }
+            totalStepsRestored = sanitizeStepCount(totalStepsRestored);
 
             // Mark this as a restored session so pedometer handler adds to existing count
             isRestoredSession.current = true;
@@ -506,14 +717,25 @@ export const WalkingProvider = ({ children }) => {
         }
       }
 
-      // Load saved step count (only if from today)
+      // Load saved step count (only if from today). Run the value
+      // through sanitizeStepCount so a previously-corrupted count
+      // (e.g. an inflated iOS reading persisted at 3.8M) is treated
+      // as fresh instead of respawning the bad state on every launch.
       const savedStepCount = await AsyncStorage.getItem(storageKeys.current.stepCount);
       if (savedStepCount) {
         const parsed = JSON.parse(savedStepCount);
         const today = new Date().toDateString();
         if (parsed.date === today) {
-          setStepCount(parsed.count);
-          setTodaySteps(parsed.count);
+          const cleanCount = sanitizeStepCount(parsed.count);
+          if (cleanCount !== Number(parsed.count)) {
+            console.log(`⚠️ Discarded corrupted persisted step count: ${parsed.count} → ${cleanCount}`);
+            await AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
+              count: cleanCount,
+              date: today,
+            }));
+          }
+          setStepCount(cleanCount);
+          setTodaySteps(cleanCount);
         } else {
           // Different day - reset
           setStepCount(0);
@@ -700,7 +922,7 @@ export const WalkingProvider = ({ children }) => {
           });
           if (ackData) {
             lastSentSteps.current = currentCount;
-            hasServerStats.current = true;
+            applyServerAnchors(ackData, currentCount);
           }
         }
       }
@@ -798,6 +1020,15 @@ export const WalkingProvider = ({ children }) => {
           pedometerSubscription.current = Pedometer.watchStepCount(async (result) => {
             lastWatchUpdate.current = Date.now(); // Track last update time
 
+            // Defensive: CMPedometer has been observed to return wildly
+            // inflated step totals on iOS (HealthKit/iCloud edge cases).
+            // Anything above MAX_DAILY_STEPS in a single callback is a
+            // bad reading — drop it before it poisons state.
+            if (!Number.isFinite(result?.steps) || result.steps < 0 || result.steps > MAX_DAILY_STEPS) {
+              console.log('⚠️ watchStepCount: ignoring implausible result', result?.steps);
+              return;
+            }
+
             let newTotalSteps = 0;
             if (isRestoredSession.current) {
               const incrementalSteps = result.steps - lastPedometerSteps.current;
@@ -805,7 +1036,7 @@ export const WalkingProvider = ({ children }) => {
                 newTotalSteps = restoredStepCount.current + result.steps;
                 setSessionSteps(prev => prev + incrementalSteps);
                 setStepCount(prev => {
-                  const finalCount = Math.max(prev, newTotalSteps);
+                  const finalCount = clampStepUpdate(prev, newTotalSteps);
                   currentStepCountRef.current = finalCount;
                   return finalCount;
                 });
@@ -815,13 +1046,13 @@ export const WalkingProvider = ({ children }) => {
               newTotalSteps = sessionStartSteps.current + result.steps;
               setSessionSteps(result.steps);
               setStepCount(prev => {
-                const finalCount = Math.max(prev, newTotalSteps);
+                const finalCount = clampStepUpdate(prev, newTotalSteps);
                 currentStepCountRef.current = finalCount;
                 return finalCount;
               });
             }
 
-            if (newTotalSteps > 0) {
+            if (newTotalSteps > 0 && newTotalSteps <= MAX_DAILY_STEPS) {
               AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
                 count: newTotalSteps,
                 date: new Date().toDateString(),
@@ -853,7 +1084,14 @@ export const WalkingProvider = ({ children }) => {
 
               const result = await Pedometer.getStepCountAsync(walkingStartTime.current, now);
 
-              if (result && result.steps >= 0) {
+              // Reject implausible readings before they corrupt state.
+              // Same root cause as the watch callback — CMPedometer can
+              // briefly return millions of steps on iOS.
+              if (!result || !Number.isFinite(result.steps) || result.steps < 0 || result.steps > MAX_DAILY_STEPS) {
+                if (result && result.steps > MAX_DAILY_STEPS) {
+                  console.log('⚠️ getStepCountAsync: ignoring implausible result', result.steps);
+                }
+              } else {
                 let newTotalSteps = 0;
 
                 if (isRestoredSession.current) {
@@ -865,18 +1103,20 @@ export const WalkingProvider = ({ children }) => {
                 // Always update session steps from poll (more reliable)
                 setSessionSteps(result.steps);
 
-                // Update step count if this gives us more steps
+                // Update step count with clamp (absolute ceiling +
+                // per-tick jump limit). Without these, one bad reading
+                // becomes permanent because Math.max never lets it fall.
                 setStepCount(prev => {
-                  if (newTotalSteps > prev) {
-                    console.log('📊 Pedometer poll update:', { sessionSteps: result.steps, total: newTotalSteps });
-                    currentStepCountRef.current = newTotalSteps;
+                  const finalCount = clampStepUpdate(prev, newTotalSteps);
+                  if (finalCount > prev) {
+                    console.log('📊 Pedometer poll update:', { sessionSteps: result.steps, total: finalCount });
+                    currentStepCountRef.current = finalCount;
                     AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
-                      count: newTotalSteps,
+                      count: finalCount,
                       date: new Date().toDateString(),
                     })).catch(() => {});
-                    return newTotalSteps;
                   }
-                  return prev;
+                  return finalCount;
                 });
               }
 
@@ -985,16 +1225,20 @@ export const WalkingProvider = ({ children }) => {
 
     // CRITICAL: Ensure we have the correct step count from AsyncStorage
     // This prevents starting from 0 if the state hasn't been restored yet
-    // Use the MAXIMUM of: current state, AsyncStorage value, and ref value
-    let actualStepCount = Math.max(stepCount, currentStepCountRef.current);
+    // Use the MAXIMUM of: current state, AsyncStorage value, and ref value.
+    // Each source is sanitized first so a previously-corrupted value
+    // (e.g. 3.8M from a bad CMPedometer read) can't seed this session.
+    let actualStepCount = Math.max(
+      sanitizeStepCount(stepCount),
+      sanitizeStepCount(currentStepCountRef.current),
+    );
     try {
       const savedStepCount = await AsyncStorage.getItem(storageKeys.current.stepCount);
       if (savedStepCount) {
         const parsed = JSON.parse(savedStepCount);
         const today = new Date().toDateString();
         if (parsed.date === today) {
-          // Always use the maximum to ensure we never lose steps
-          actualStepCount = Math.max(actualStepCount, parsed.count);
+          actualStepCount = Math.max(actualStepCount, sanitizeStepCount(parsed.count));
         }
       }
     } catch (e) {
@@ -1070,76 +1314,162 @@ export const WalkingProvider = ({ children }) => {
       console.log('Failed to start background step tracking:', error.message);
     }
 
-    try {
-      // Start periodic step sync — send DELTA steps to save-step-event HTTP endpoint.
-      // Server ACCUMULATES received steps, so we send only the difference since last send.
-      lastSentSteps.current = currentStepCountRef.current;
-      socketSendInterval.current = setInterval(async () => {
-        const totalSteps = currentStepCountRef.current;
-        const token = currentToken.current;
-        if (!token || !currentCauseId.current || totalSteps <= 0) return;
+  }, [stepCount, goalSteps]);
 
-        const deltaSteps = totalSteps - lastSentSteps.current;
-        if (deltaSteps <= 0) return;
+  // Periodic step sync to save-step-event — lives in a standalone
+  // effect tied to `isWalking` so it runs for BOTH freshly-started
+  // walks (via startWalking) AND walking sessions restored from
+  // AsyncStorage on app launch. Previously this interval was set up
+  // inside startWalking only, which meant restored sessions never
+  // pushed any deltas to the server until the user manually stopped
+  // and restarted walking.
+  useEffect(() => {
+    if (!isWalking) return undefined;
 
-        const ackData = await postStepEvent({
+    // Fresh baseline on every transition into walking so we never
+    // blast the server with a giant "catch-up" delta on restore.
+    // Unsent steps from a previous run live in the offline queue
+    // (enqueuePending) which flushes on the next successful POST.
+    lastSentSteps.current = currentStepCountRef.current;
+
+    const tick = async () => {
+      const totalSteps = currentStepCountRef.current;
+      const token = currentToken.current;
+      // Log the skip reason so it's visible in Metro console / logcat
+      // when the DevMenu shows no save-step-event traffic.
+      if (!token) { console.log('⏭️ save-step-event skip: no token'); return; }
+      if (!currentCauseId.current) { console.log('⏭️ save-step-event skip: no cause'); return; }
+      if (totalSteps <= 0) { console.log('⏭️ save-step-event skip: stepCount=0'); return; }
+
+      const deltaSteps = totalSteps - lastSentSteps.current;
+      if (deltaSteps <= 0) return; // quiet — happens every idle tick
+
+      // Watchdog — if a previous POST has been "in flight" longer
+      // than SAVE_INFLIGHT_MAX_AGE_MS, assume it's stuck and clear
+      // the flag so subsequent ticks can fire.
+      if (saveInFlight.current) {
+        const age = Date.now() - saveInFlightStart.current;
+        if (age > SAVE_INFLIGHT_MAX_AGE_MS) {
+          console.log(`⚠️ save-step-event watchdog: clearing stuck in-flight flag (age=${age}ms)`);
+          saveInFlight.current = false;
+        } else {
+          console.log('⏭️ save-step-event skipped: previous request still in flight');
+          return;
+        }
+      }
+      saveInFlight.current = true;
+      saveInFlightStart.current = Date.now();
+      let ackData;
+      try {
+        ackData = await postStepEvent({
           token,
           categoryId: currentCauseId.current,
           steps: deltaSteps,
           location: currentLocation.current,
         });
+      } catch (postErr) {
+        console.log('save-step-event threw:', postErr?.message);
+      } finally {
+        saveInFlight.current = false;
+        saveInFlightStart.current = 0;
+      }
 
-        if (ackData) {
-          lastSentSteps.current = totalSteps;
-          hasServerStats.current = true;
-          console.log('📤 Sent delta steps:', deltaSteps, '(total:', totalSteps, ') ack:', ackData);
+      if (ackData) {
+        lastSentSteps.current = totalSteps;
+        console.log('📤 Sent delta steps:', deltaSteps, '(total:', totalSteps, ') ack:', ackData);
+        applyServerAnchors(ackData, totalSteps);
+        const litresValue = ackData.litres ?? ackData.liters ?? ackData.water;
 
-          // Apply authoritative server values for today's totals.
-          if (ackData.goal && ackData.goal > 0) setGoalSteps(ackData.goal);
-          if (ackData.kilometre !== undefined) {
-            setKilometre(typeof ackData.kilometre === 'number'
-              ? ackData.kilometre.toFixed(2)
-              : String(ackData.kilometre));
-          }
-          if (ackData.kcal !== undefined) {
-            setKcal(typeof ackData.kcal === 'number'
-              ? Math.round(ackData.kcal)
-              : Number(ackData.kcal) || 0);
-          }
-          const litresValue = ackData.litres ?? ackData.liters ?? ackData.water;
-          if (litresValue !== undefined) setLitres(String(litresValue));
-
-          // Persist stats locally.
-          const localStepCount = currentStepCountRef.current;
-          const todayDate = getTodayDateString();
-          try {
-            await AsyncStorage.setItem(storageKeys.current.dailyStats, JSON.stringify({
-              stepCount: localStepCount,
-              litres: litresValue !== undefined ? String(litresValue) : litres,
-              date: todayDate,
-            }));
-            const logKm = ((localStepCount * 0.75) / 1000).toFixed(2);
-            const logKcal = Math.round(localStepCount * 0.05);
-            await saveToDailyStepLog(todayDate, localStepCount, logKm, logKcal, goalSteps);
-          } catch (e) {
-            // Silent
-          }
-
-          // Sync state to watch
-          WearableService.syncToWatch({
-            stepCount: totalSteps,
-            dailyGoal: goalSteps,
-            activeCause: activeCause || 1,
-            isWalking: true,
-            litties: Math.floor(totalSteps / 100),
-          });
+        const localStepCount = currentStepCountRef.current;
+        const todayDate = getTodayDateString();
+        try {
+          await AsyncStorage.setItem(storageKeys.current.dailyStats, JSON.stringify({
+            stepCount: localStepCount,
+            litres: litresValue !== undefined ? String(litresValue) : litres,
+            date: todayDate,
+          }));
+          const logKm = ((localStepCount * 0.75) / 1000).toFixed(2);
+          const logKcal = Math.round(localStepCount * 0.05);
+          await saveToDailyStepLog(todayDate, localStepCount, logKm, logKcal, goalSteps);
+        } catch (e) {
+          // Silent
         }
-      }, SOCKET_SEND_INTERVAL);
 
-    } catch (error) {
-      console.log('Step sync setup failed:', error.message);
+        WearableService.syncToWatch({
+          stepCount: totalSteps,
+          dailyGoal: goalSteps,
+          activeCause: activeCause || 1,
+          isWalking: true,
+          litties: Math.floor(totalSteps / 100),
+        });
+      }
+    };
+
+    // Expose tick via ref so other places (AppState foreground,
+    // step-delta triggers, heartbeat) can fire it on demand without
+    // waiting for the next interval beat.
+    syncTickRef.current = tick;
+
+    // Fire once immediately so the very first save goes out as soon
+    // as isWalking becomes true (useful on restore where the user
+    // may already have accumulated unsent steps).
+    tick();
+
+    console.log('▶️ Starting save-step-event sync interval (3s)');
+    socketSendInterval.current = setInterval(tick, SOCKET_SEND_INTERVAL);
+
+    // Heartbeat watchdog — every 10s verify the main interval is
+    // still alive. On some devices / OS versions JS timers can be
+    // coalesced or dropped when the app leaves/rejoins focus. If the
+    // ref was cleared but we're still supposed to be walking, respin.
+    const heartbeat = setInterval(() => {
+      if (!isWalking) return;
+      if (!socketSendInterval.current) {
+        console.log('💓 heartbeat: sync interval was dead, restarting');
+        socketSendInterval.current = setInterval(tick, SOCKET_SEND_INTERVAL);
+      }
+    }, 10000);
+
+    return () => {
+      if (socketSendInterval.current) {
+        clearInterval(socketSendInterval.current);
+        socketSendInterval.current = null;
+      }
+      clearInterval(heartbeat);
+      syncTickRef.current = null;
+      console.log('⏹ Stopped save-step-event sync interval');
+    };
+    // NOTE: only isWalking in deps — goalSteps and activeCause
+    // changes must not tear down the interval mid-walk. The tick
+    // reads them via refs/state directly.
+  }, [isWalking]);
+
+  // Out-of-band trigger: whenever stepCount grows by at least
+  // STEP_TRIGGER_THRESHOLD since the last trigger, fire the sync
+  // tick immediately instead of waiting up to 3 seconds. This
+  // keeps the server's totals fresh during fast walking.
+  useEffect(() => {
+    if (!isWalking) return;
+    if (!syncTickRef.current) return;
+    if (stepCount - lastTriggerSteps.current >= STEP_TRIGGER_THRESHOLD) {
+      lastTriggerSteps.current = stepCount;
+      syncTickRef.current();
     }
-  }, [stepCount, goalSteps]);
+  }, [stepCount, isWalking]);
+
+  // When the app returns to foreground, fire a sync immediately.
+  // Background JS is paused on both iOS and Android, so the 3s
+  // interval effectively sleeps while the app is in the background.
+  // Without this kick, the first sync after resume can lag up to 3s.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active' && isWalking && syncTickRef.current) {
+        console.log('📱 foreground → firing save-step-event immediately');
+        syncTickRef.current();
+      }
+    });
+    return () => sub.remove();
+  }, [isWalking]);
 
   // Stop walking
   const stopWalking = useCallback(async () => {
@@ -1267,18 +1597,12 @@ export const WalkingProvider = ({ children }) => {
     if (!token) return;
     const summary = await fetchDailyStats(token);
     if (!summary) return;
-    hasServerStats.current = true;
-    if (summary.goal && summary.goal > 0) setGoalSteps(summary.goal);
-    if (summary.kilometre !== undefined) {
-      setKilometre(typeof summary.kilometre === 'number'
-        ? summary.kilometre.toFixed(2)
-        : String(summary.kilometre));
-    }
-    if (summary.kcal !== undefined) {
-      setKcal(Number(summary.kcal) || 0);
-    }
-    const litresValue = summary.litres ?? summary.liters ?? summary.water;
-    if (litresValue !== undefined) setLitres(String(litresValue));
+    // Anchor to the current step count so stats carry on updating
+    // locally between tick intervals.
+    const baseSteps = typeof summary.steps === 'number' && summary.steps > 0
+      ? Math.max(currentStepCountRef.current || 0, summary.steps)
+      : currentStepCountRef.current || 0;
+    applyServerAnchors(summary, baseSteps);
     if (typeof summary.steps === 'number' && summary.steps > 0) {
       setStepCount((prev) => Math.max(prev, summary.steps));
       setTodaySteps((prev) => Math.max(prev, summary.steps));
@@ -1350,9 +1674,10 @@ export const WalkingProvider = ({ children }) => {
         const parsed = JSON.parse(savedStepCount);
         const todayStr = new Date().toDateString();
         if (parsed.date === todayStr) {
-          setStepCount(parsed.count);
-          setTodaySteps(parsed.count);
-          console.log('📱 Loaded step count for user:', parsed.count);
+          const clean = sanitizeStepCount(parsed.count);
+          setStepCount(clean);
+          setTodaySteps(clean);
+          console.log('📱 Loaded step count for user:', clean);
         }
       }
 
@@ -1361,9 +1686,10 @@ export const WalkingProvider = ({ children }) => {
       if (savedDailyStats) {
         const stats = JSON.parse(savedDailyStats);
         if (stats.date === today) {
-          if (stats.stepCount > 0) {
-            setStepCount(prev => Math.max(prev, stats.stepCount));
-            setTodaySteps(prev => Math.max(prev, stats.stepCount));
+          const cleanStatsCount = sanitizeStepCount(stats.stepCount);
+          if (cleanStatsCount > 0) {
+            setStepCount(prev => Math.max(prev, cleanStatsCount));
+            setTodaySteps(prev => Math.max(prev, cleanStatsCount));
           }
           // Only load litres (km/kcal are calculated from stepCount)
           setLitres(stats.litres || '0.00');
@@ -1382,16 +1708,21 @@ export const WalkingProvider = ({ children }) => {
           if (sessionDate === todayStr) {
             setIsWalking(true);
             setActiveCause(state.activeCause);
-            sessionStartSteps.current = state.sessionStartSteps || 0;
+            // Mirror into ref so the save-step-event tick can fire
+            // (see note in the earlier restore path).
+            currentCauseId.current = state.activeCause;
+            sessionStartSteps.current = sanitizeStepCount(state.sessionStartSteps || 0);
 
             // Use NOW for pedometer to work correctly after app restart
             walkingStartTime.current = new Date();
 
             if (state.sessionSteps) {
-              setSessionSteps(state.sessionSteps);
+              setSessionSteps(sanitizeStepCount(state.sessionSteps));
             }
 
-            const totalSteps = (state.sessionStartSteps || 0) + (state.sessionSteps || 0);
+            const totalSteps = sanitizeStepCount(
+              sanitizeStepCount(state.sessionStartSteps || 0) + sanitizeStepCount(state.sessionSteps || 0),
+            );
 
             // Mark as restored session so pedometer adds to existing count
             isRestoredSession.current = true;

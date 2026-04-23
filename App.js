@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/navigation';
 import { WalkingProvider, ThemeProvider, AuthProvider, WeatherProvider } from './src/context';
 import DevMenu from './src/components/DevMenu';
+import OfflineBanner from './src/components/OfflineBanner';
 
 // ==========================================================================
 // Global font scaling based on *physical* pixel width, not dp width.
@@ -73,6 +74,7 @@ export default function App() {
           <WeatherProvider>
             <WalkingProvider>
               <AppNavigator />
+              <OfflineBanner />
               <DevMenu />
             </WalkingProvider>
           </WeatherProvider>

@@ -1,13 +1,17 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator, Share, Linking, Alert } from 'react-native';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator, Share, Platform } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as FileSystem from 'expo-file-system/legacy';
 import { BlurView } from 'expo-blur';
+import Svg, { Rect, G, Image as SvgImage } from 'react-native-svg';
+import qrcodeGenerator from 'qrcode-generator';
+import RNShare from 'react-native-share';
 import { Icon } from '../../components';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { fonts } from '../../utils';
 
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 const socialLinks = [
   { id: 1, name: 'twitter', image: require('../../../assest/img/twitter.webp') },
@@ -18,6 +22,67 @@ const socialLinks = [
   { id: 6, name: 'snapchat', image: require('../../../assest/img/snapchat.webp') },
 ];
 
+// Clean QR share card — renders the QR matrix from qrcode-generator as
+// SVG rects (no async image-based QR library, so the output is always
+// complete) with the WERN logo centered on top. Text details are sent
+// as a separate message by the share handler, so this PNG stays a
+// simple scan target.
+const LOGO_SRC = Image.resolveAssetSource(require('../../../assest/img/wern-logo.png'));
+
+const ShareCardSvg = React.memo(function ShareCardSvg({ smartUrl, svgRef }) {
+  const { cells, moduleCount } = useMemo(() => {
+    const qr = qrcodeGenerator(0, 'M');
+    qr.addData(smartUrl);
+    qr.make();
+    const count = qr.getModuleCount();
+    const dark = [];
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) {
+        if (qr.isDark(r, c)) dark.push({ r, c });
+      }
+    }
+    return { cells: dark, moduleCount: count };
+  }, [smartUrl]);
+
+  const SIZE = 720;
+  const PAD = 40;
+  const QR_SIZE = SIZE - PAD * 2;
+  const QR_X = PAD;
+  const QR_Y = PAD;
+  const cell = QR_SIZE / moduleCount;
+  const logoBox = QR_SIZE * 0.22;
+  const logoX = QR_X + (QR_SIZE - logoBox) / 2;
+  const logoY = QR_Y + (QR_SIZE - logoBox) / 2;
+
+  return (
+    <Svg ref={svgRef} width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+      <Rect x={0} y={0} width={SIZE} height={SIZE} fill="#ffffff" rx={24} />
+      <G>
+        {cells.map(({ r, c }, i) => (
+          <Rect
+            key={i}
+            x={QR_X + c * cell}
+            y={QR_Y + r * cell}
+            width={cell + 0.5}
+            height={cell + 0.5}
+            fill="#000000"
+          />
+        ))}
+      </G>
+      {/* White backing square so the center logo doesn't corrupt the scan */}
+      <Rect x={logoX - 8} y={logoY - 8} width={logoBox + 16} height={logoBox + 16} fill="#ffffff" rx={12} />
+      <SvgImage
+        x={logoX}
+        y={logoY}
+        width={logoBox}
+        height={logoBox}
+        href={LOGO_SRC}
+        preserveAspectRatio="xMidYMid meet"
+      />
+    </Svg>
+  );
+});
+
 const ReferScreen = ({ onClose }) => {
   const { user, token } = useAuth();
   const referralCode = user?.referal_code || 'WERN-XXX';
@@ -27,6 +92,10 @@ const ReferScreen = ({ onClose }) => {
   const [stats, setStats] = useState({ directReferrals: 0, totalNetwork: 0, totalReferrals: 0 });
   const { colors, isDarkMode } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
+  // Ref on the off-screen QR — we render it hidden so that toDataURL
+  // works when the user triggers a share. Ref is how react-native-qrcode-svg
+  // exposes the underlying SVG's toDataURL.
+  const qrRef = useRef(null);
 
   useEffect(() => {
     fetchReferralHistory();
@@ -69,146 +138,107 @@ const ReferScreen = ({ onClose }) => {
 
   // Generate referral link and message
   const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.wern.app&hl=en_IN';
+  const APP_STORE_URL = 'https://apps.apple.com/in/app/wern-walk-track-empower/id6761259828';
+  // Smart-redirect page hosted on wernapp.com: detects the visitor's OS
+  // (iPhone → App Store, Android → Play Store, desktop → choose page).
+  // This is the URL encoded into the QR code so a single scan works on
+  // both platforms.
+  const SMART_DOWNLOAD_URL = 'https://wernapp.com/get-app.html';
 
   const getReferralMessage = () => {
-    return `Join me on WERN and start earning rewards by walking! Use my referral code: ${referralCode}\n\nDownload now: ${PLAY_STORE_URL}`;
+    return `Join me on WERN and start earning rewards by walking! Use my referral code: ${referralCode}\n\nDownload: ${SMART_DOWNLOAD_URL}\n\nAndroid: ${PLAY_STORE_URL}\n\niOS: ${APP_STORE_URL}`;
   };
 
+  // Platforms that only accept a single URL (Facebook "u=", Telegram "url=")
+  // get the smart-redirect URL so the landing page can route to the
+  // recipient's native store.
   const getReferralLink = () => {
-    return PLAY_STORE_URL;
+    return SMART_DOWNLOAD_URL;
   };
 
-  // Handle social media sharing
+  // Export the off-screen composite SVG to a PNG file in the cache
+  // directory. react-native-svg's Svg component exposes toDataURL via
+  // a callback; wrap it in a promise so handleShare can await. The
+  // 150ms settle delay gives SvgImage's async asset load time to
+  // finish before we snapshot — without it the logo occasionally
+  // comes back missing on first tap.
+  const buildQrImageUri = () =>
+    new Promise((resolve, reject) => {
+      const svg = qrRef.current;
+      if (!svg?.toDataURL) {
+        reject(new Error('Share card ref not ready'));
+        return;
+      }
+      setTimeout(() => {
+        svg.toDataURL(async (base64) => {
+          try {
+            const fileUri = `${FileSystem.cacheDirectory}wern-referral-card.png`;
+            await FileSystem.writeAsStringAsync(fileUri, base64, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            resolve(fileUri);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }, 150);
+    });
+
+  // Map our social icon id to react-native-share's Social enum so the
+  // chosen app opens directly with both QR image and text prefilled.
+  const RNSHARE_SOCIAL = {
+    whatsapp: RNShare.Social.WHATSAPP,
+    telegram: RNShare.Social.TELEGRAM,
+    twitter: RNShare.Social.TWITTER,
+    facebook: RNShare.Social.FACEBOOK,
+    instagram: RNShare.Social.INSTAGRAM,
+    snapchat: RNShare.Social.SNAPCHAT,
+  };
+
+  // Unified share — react-native-share delivers both the QR image and
+  // the full referral text together to the target app, on iOS and
+  // Android alike. Tries to open the specific app first; falls back
+  // to the system share sheet if that app isn't installed, and to a
+  // text-only OS share if all else fails.
   const handleShare = async (platform) => {
     const message = getReferralMessage();
-    const link = getReferralLink();
-    const encodedMessage = encodeURIComponent(message);
-    const encodedLink = encodeURIComponent(link);
-
     try {
-      let url = null;
+      const fileUri = await buildQrImageUri();
+      const url = fileUri.startsWith('file://') ? fileUri : `file://${fileUri}`;
+      const social = RNSHARE_SOCIAL[platform];
 
-      switch (platform) {
-        case 'whatsapp':
-          url = `whatsapp://send?text=${encodedMessage}`;
-          break;
-        case 'telegram':
-          url = `tg://msg?text=${encodedMessage}`;
-          break;
-        case 'twitter':
-          url = `twitter://post?message=${encodedMessage}`;
-          break;
-        case 'facebook':
-          // Facebook doesn't support pre-filled text on mobile, just opens share dialog
-          url = `fb://share/?quote=${encodedMessage}`;
-          break;
-        case 'instagram':
-          // Instagram doesn't support direct sharing, copy to clipboard and open app
-          await Clipboard.setStringAsync(message);
-          Alert.alert(
-            'Share on Instagram',
-            'Your referral message has been copied! Paste it in your Instagram story or DM.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Open Instagram',
-                onPress: async () => {
-                  const instagramUrl = 'instagram://app';
-                  const canOpen = await Linking.canOpenURL(instagramUrl);
-                  if (canOpen) {
-                    await Linking.openURL(instagramUrl);
-                  } else {
-                    await Linking.openURL('https://instagram.com');
-                  }
-                }
-              },
-            ]
-          );
-          return;
-        case 'snapchat':
-          // Snapchat doesn't support direct sharing, copy to clipboard and open app
-          await Clipboard.setStringAsync(message);
-          Alert.alert(
-            'Share on Snapchat',
-            'Your referral message has been copied! Paste it in your Snapchat chat.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Open Snapchat',
-                onPress: async () => {
-                  const snapchatUrl = 'snapchat://app';
-                  const canOpen = await Linking.canOpenURL(snapchatUrl);
-                  if (canOpen) {
-                    await Linking.openURL(snapchatUrl);
-                  } else {
-                    await Linking.openURL('https://snapchat.com');
-                  }
-                }
-              },
-            ]
-          );
-          return;
-        default:
-          // Fallback to native share
-          await Share.share({
-            message: message,
+      if (social) {
+        try {
+          await RNShare.shareSingle({
+            social,
+            message,
+            url,
+            type: 'image/png',
             title: 'Join WERN',
+            failOnCancel: false,
           });
           return;
-      }
-
-      // Try to open the app-specific URL
-      if (url) {
-        const canOpen = await Linking.canOpenURL(url);
-        if (canOpen) {
-          await Linking.openURL(url);
-        } else {
-          // Fallback URLs for web if app is not installed
-          let fallbackUrl = null;
-          switch (platform) {
-            case 'whatsapp':
-              fallbackUrl = `https://wa.me/?text=${encodedMessage}`;
-              break;
-            case 'telegram':
-              fallbackUrl = `https://t.me/share/url?url=${encodedLink}&text=${encodeURIComponent(`Join me on WERN! Use code: ${referralCode}`)}`;
-              break;
-            case 'twitter':
-              fallbackUrl = `https://twitter.com/intent/tweet?text=${encodedMessage}`;
-              break;
-            case 'facebook':
-              fallbackUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodedLink}&quote=${encodedMessage}`;
-              break;
-          }
-
-          if (fallbackUrl) {
-            const canOpenFallback = await Linking.canOpenURL(fallbackUrl);
-            if (canOpenFallback) {
-              await Linking.openURL(fallbackUrl);
-            } else {
-              // Final fallback - use native share
-              await Share.share({
-                message: message,
-                title: 'Join WERN',
-              });
-            }
-          } else {
-            await Share.share({
-              message: message,
-              title: 'Join WERN',
-            });
-          }
+        } catch (singleErr) {
+          console.log('shareSingle failed, falling back to share sheet:', singleErr?.message);
         }
       }
+
+      await RNShare.open({
+        message,
+        url,
+        type: 'image/png',
+        title: 'Join WERN',
+        subject: 'Join WERN',
+        failOnCancel: false,
+      });
     } catch (error) {
-      console.log('Share error:', error.message);
-      // Fallback to native share on any error
+      if (error?.message && !error.message.toLowerCase().includes('user did not share')) {
+        console.log('Share error:', error.message);
+      }
       try {
-        await Share.share({
-          message: message,
-          title: 'Join WERN',
-        });
+        await Share.share({ message, title: 'Join WERN' });
       } catch (shareError) {
-        console.log('Native share error:', shareError.message);
+        console.log('Native share fallback error:', shareError?.message);
       }
     }
   };
@@ -304,6 +334,17 @@ const ReferScreen = ({ onClose }) => {
               <Image source={social.image} style={styles.socialIcon} resizeMode="contain" />
             </TouchableOpacity>
           ))}
+        </View>
+
+        {/* Hidden composite — WERN logo + heading + referral code + QR +
+            full download URLs baked into a single SVG. When the user
+            triggers a share, we call toDataURL on this SVG to get one
+            PNG that already contains every piece of info the user
+            wants to send. This is the only way to deliver text + QR
+            in one share on Expo Go Android (native file share can't
+            carry text; clipboard paste is the only alternative). */}
+        <View style={styles.qrHidden} pointerEvents="none">
+          <ShareCardSvg smartUrl={SMART_DOWNLOAD_URL} svgRef={qrRef} />
         </View>
 
         {/* Referral Network Tree */}
@@ -534,6 +575,15 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   socialIcon: {
     width: 28,
     height: 28,
+  },
+  // Off-screen QR — hidden but still mounted so its ref can export PNG
+  // data when the user triggers a share. Positioned far off-screen so
+  // it doesn't affect layout; opacity 0 guards against any layout glitch.
+  qrHidden: {
+    position: 'absolute',
+    left: -10000,
+    top: -10000,
+    opacity: 0,
   },
   // Network Tree
   networkTreeContainer: {

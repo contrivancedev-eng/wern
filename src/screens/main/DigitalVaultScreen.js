@@ -7,7 +7,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { fonts } from '../../utils';
 
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 // Format large numbers (1000 -> 1k, 10000 -> 10k, etc.)
 const formatNumber = (num) => {
@@ -44,6 +44,9 @@ const DigitalVaultScreen = () => {
   const MAX_VISIBLE_TRANSACTIONS = 5;
   const [balanceCard, setBalanceCard] = useState({ available_balance: 0, total_km: 0, total_calories: 0, total_steps: 0 });
   const [displayBalance, setDisplayBalance] = useState(0);
+  // Leaderboard — top 10 users by total_steps, fetched from admin-users-list.
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
   const { colors, isDarkMode } = useTheme();
   const { token, refreshLitties, dataRefreshTrigger } = useAuth();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
@@ -103,9 +106,37 @@ const DigitalVaultScreen = () => {
     }
   }, [token, refreshLitties, hasLoadedOnce]);
 
+  // Fetch the global leaderboard from admin-users-list. Sorts by
+  // total_steps descending and keeps the top 10 entries. Called on
+  // mount and screen focus so the board stays reasonably fresh.
+  const fetchLeaderboard = useCallback(async (showLoader = false) => {
+    if (showLoader) setIsLoadingLeaderboard(true);
+    try {
+      const response = await fetch(`${API_URL}admin-users-list`);
+      const data = await response.json();
+      if (data?.status === true && Array.isArray(data.data)) {
+        const top10 = [...data.data]
+          .map((u) => ({
+            id: u.id,
+            full_name: u.full_name || u.nickname || 'WERN User',
+            total_steps: Number(u.total_steps) || 0,
+            user_image: u.user_image,
+          }))
+          .sort((a, b) => b.total_steps - a.total_steps)
+          .slice(0, 10);
+        setLeaderboard(top10);
+      }
+    } catch (error) {
+      console.log('Error fetching leaderboard:', error.message);
+    } finally {
+      setIsLoadingLeaderboard(false);
+    }
+  }, []);
+
   // Fetch data on mount - show loader only on first load
   useEffect(() => {
     fetchDigitalVaultData(true); // Show loader on initial mount
+    fetchLeaderboard(true);
   }, []);
 
   // Refetch data when dataRefreshTrigger changes - silent refresh (no loader)
@@ -119,6 +150,7 @@ const DigitalVaultScreen = () => {
   useFocusEffect(
     useCallback(() => {
       fetchDigitalVaultData(false); // Silent refresh
+      fetchLeaderboard(false);
     }, [])
   );
 
@@ -261,6 +293,63 @@ const DigitalVaultScreen = () => {
                 </TouchableOpacity>
               )}
             </>
+          )}
+        </View>
+
+        {/* Leaderboard — top 10 walkers globally. First three get
+            gold / silver / bronze badges instead of rank numbers. */}
+        <Text style={styles.sectionTitle}>Leaderboard</Text>
+        <View style={styles.leaderboardList}>
+          {isLoadingLeaderboard && leaderboard.length === 0 ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#22c55e" />
+              <Text style={styles.loadingText}>Loading leaderboard...</Text>
+            </View>
+          ) : leaderboard.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Icon name="trophy" size={40} color={colors.textMuted} />
+              <Text style={styles.emptyText}>No leaderboard data yet</Text>
+            </View>
+          ) : (
+            leaderboard.map((entry, index) => {
+              // Gold / silver / bronze metadata for the top three.
+              const badgeMeta = index === 0
+                ? { color: '#f59e0b', icon: 'trophy' }
+                : index === 1
+                  ? { color: '#9ca3af', icon: 'medal' }
+                  : index === 2
+                    ? { color: '#b45309', icon: 'medal' }
+                    : null;
+
+              return (
+                <View
+                  key={entry.id || index}
+                  style={[
+                    styles.leaderboardItem,
+                    index < leaderboard.length - 1 && styles.leaderboardBorder,
+                  ]}
+                >
+                  {badgeMeta ? (
+                    <View style={[styles.leaderboardBadge, { backgroundColor: badgeMeta.color }]}>
+                      <Icon name={badgeMeta.icon} size={18} color="#FFFFFF" />
+                    </View>
+                  ) : (
+                    <View style={styles.leaderboardRankNumber}>
+                      <Text style={styles.leaderboardRankText}>{index + 1}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.leaderboardName} numberOfLines={1}>
+                    {entry.full_name}
+                  </Text>
+                  <View style={styles.leaderboardStepsContainer}>
+                    <Text style={styles.leaderboardStepsValue}>
+                      {formatNumber(entry.total_steps)}
+                    </Text>
+                    <Text style={styles.leaderboardStepsLabel}>steps</Text>
+                  </View>
+                </View>
+              );
+            })
           )}
         </View>
 
@@ -514,6 +603,65 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
     color: colors.textWhite,
   },
   transactionCurrency: {
+    fontSize: 11,
+    color: colors.textLight,
+  },
+  // Leaderboard
+  leaderboardList: {
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.08)',
+  },
+  leaderboardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  leaderboardBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  leaderboardBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  leaderboardRankNumber: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  leaderboardRankText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textLight,
+  },
+  leaderboardName: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textWhite,
+    marginRight: 10,
+  },
+  leaderboardStepsContainer: {
+    alignItems: 'flex-end',
+  },
+  leaderboardStepsValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textWhite,
+  },
+  leaderboardStepsLabel: {
     fontSize: 11,
     color: colors.textLight,
   },

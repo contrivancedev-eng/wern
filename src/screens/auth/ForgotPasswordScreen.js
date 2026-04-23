@@ -5,7 +5,7 @@ import { GradientBackground, GlassCard, GradientButton, Toast } from '../../comp
 import { useTheme } from '../../context/ThemeContext';
 import { fonts } from '../../utils';
 
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 const ForgotPasswordScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');

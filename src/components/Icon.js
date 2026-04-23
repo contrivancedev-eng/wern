@@ -59,6 +59,7 @@ const iconMap = {
   'coins': { set: 'FontAwesome5', name: 'coins' },
   'chart': { set: 'Ionicons', name: 'stats-chart' },
   'trophy': { set: 'Ionicons', name: 'trophy' },
+  'medal': { set: 'FontAwesome5', name: 'medal' },
   'handshake': { set: 'FontAwesome5', name: 'handshake' },
   'card': { set: 'Ionicons', name: 'card' },
   'qrcode': { set: 'Ionicons', name: 'qr-code' },
@@ -114,6 +115,15 @@ const iconMap = {
   'pulse': { set: 'Ionicons', name: 'pulse' },
   'wifi': { set: 'Ionicons', name: 'wifi' },
   'sync': { set: 'Ionicons', name: 'sync' },
+  'sparkles': { set: 'Ionicons', name: 'sparkles' },
+  'sparkles-outline': { set: 'Ionicons', name: 'sparkles-outline' },
+  'gift-outline': { set: 'Ionicons', name: 'gift-outline' },
+  'trophy-outline': { set: 'Ionicons', name: 'trophy-outline' },
+  'walk-outline': { set: 'FontAwesome5', name: 'walking' },
+  'alert-circle-outline': { set: 'Ionicons', name: 'alert-circle-outline' },
+  'star-outline': { set: 'Ionicons', name: 'star-outline' },
+  'trash': { set: 'Ionicons', name: 'trash' },
+  'trash-outline': { set: 'Ionicons', name: 'trash-outline' },
 };
 
 const Icon = ({ name, size = 24, color = '#FFFFFF', style }) => {

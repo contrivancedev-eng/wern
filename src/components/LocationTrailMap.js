@@ -282,9 +282,28 @@ const LocationTrailMap = ({ userId, isWalking }) => {
 
           var currentMarker = null;
           var trailPolyline = null;
+          var currentLatLng = null;
+
+          // Keep the full walk path visible. If the trail + the live marker
+          // extend beyond the current viewport we zoom out; otherwise we
+          // leave zoom alone so short walks don't pull back to a wide view.
+          function fitToWalkArea() {
+            var pts = [];
+            if (trailPolyline) {
+              var latlngs = trailPolyline.getLatLngs();
+              for (var i = 0; i < latlngs.length; i++) pts.push(latlngs[i]);
+            }
+            if (currentLatLng) pts.push(currentLatLng);
+            if (pts.length < 2) return; // nothing to fit yet
+            var bounds = L.latLngBounds(pts);
+            if (!map.getBounds().contains(bounds)) {
+              map.fitBounds(bounds, { padding: [40, 40], maxZoom: 17, animate: true });
+            }
+          }
 
           // Initialize current location marker with arrow
           ${currentLocation ? `
+            currentLatLng = L.latLng(${currentLocation.lat}, ${currentLocation.lng});
             currentMarker = L.marker([${currentLocation.lat}, ${currentLocation.lng}], {
               icon: createArrowIcon(${heading})
             }).addTo(map);
@@ -313,6 +332,7 @@ const LocationTrailMap = ({ userId, isWalking }) => {
 
           // Function to update current location
           function updateCurrentLocation(lat, lng) {
+            currentLatLng = L.latLng(lat, lng);
             if (currentMarker) {
               currentMarker.setLatLng([lat, lng]);
             } else {
@@ -320,7 +340,12 @@ const LocationTrailMap = ({ userId, isWalking }) => {
                 icon: createArrowIcon(currentHeading)
               }).addTo(map);
             }
-            map.panTo([lat, lng]);
+            // If the full walk fits in the viewport, just pan — otherwise
+            // fitToWalkArea will zoom out so the whole path stays visible.
+            if (!trailPolyline || map.getBounds().contains(currentLatLng)) {
+              map.panTo([lat, lng]);
+            }
+            fitToWalkArea();
           }
 
           // Function to update trail
@@ -335,6 +360,7 @@ const LocationTrailMap = ({ userId, isWalking }) => {
                 smoothFactor: 1
               }).addTo(map);
             }
+            fitToWalkArea();
           }
         </script>
       </body>

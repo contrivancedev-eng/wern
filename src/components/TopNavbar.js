@@ -73,7 +73,7 @@ const Sparkle = ({ delay, angle, distance }) => {
   );
 };
 
-const API_URL = 'https://www.videosdownloaders.com/firsttrackapi/api/';
+const API_URL = 'https://www.wernapp.com/api/';
 
 const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress, onNotificationsPress }) => {
   const insets = useSafeAreaInsets();
@@ -96,7 +96,9 @@ const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress, onN
     }
   };
 
-  // Poll unread notification count every 60s and on mount/auth changes.
+  // Poll for new notifications every 60s. When we see any id we haven't
+  // fired a local heads-up for yet (tracked per-user in AsyncStorage so
+  // it survives restarts), show it as a push-style banner.
   useEffect(() => {
     if (!token) {
       setUnreadCount(0);
@@ -105,14 +107,52 @@ const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress, onN
     let cancelled = false;
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { apiFetch } = require('../utils/apiClient');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { showServerNotification } = require('../services/NotificationService');
+    const lastSeenKey = `@wern_last_seen_notif_id_${user?.id || 'guest'}`;
+
     const fetchUnread = async () => {
       try {
         const { json } = await apiFetch(
-          `${API_URL}get-notifications?token=${token}&limit=1&offset=0`,
+          `${API_URL}get-notifications?token=${token}&limit=10&offset=0`,
           { headers: { Accept: 'application/json' } }
         );
-        if (!cancelled && json?.status === true && json?.data) {
-          setUnreadCount(json.data.unread_count || 0);
+        if (cancelled || json?.status !== true || !json?.data) return;
+        setUnreadCount(json.data.unread_count || 0);
+
+        const list = Array.isArray(json.data.notifications) ? json.data.notifications : [];
+        if (!list.length) return;
+
+        const lastSeenRaw = await AsyncStorage.getItem(lastSeenKey);
+        const lastSeen = Number(lastSeenRaw) || 0;
+
+        // First run on a device: skip backlog so the user doesn't get
+        // flooded with pushes for old notifications. Just record the
+        // latest id and surface future ones.
+        if (lastSeen === 0) {
+          const maxId = list.reduce((m, n) => Math.max(m, Number(n.id) || 0), 0);
+          if (maxId > 0) await AsyncStorage.setItem(lastSeenKey, String(maxId));
+          return;
+        }
+
+        const fresh = list
+          .filter((n) => (Number(n.id) || 0) > lastSeen && !n.is_read)
+          .sort((a, b) => Number(a.id) - Number(b.id));
+
+        for (const n of fresh) {
+          await showServerNotification({
+            id: n.id,
+            title: n.title,
+            body: n.body,
+            data: { notification_id: n.id },
+          });
+        }
+
+        if (fresh.length) {
+          const newMax = fresh[fresh.length - 1].id;
+          await AsyncStorage.setItem(lastSeenKey, String(newMax));
         }
       } catch (e) {
         // Silent
@@ -124,7 +164,7 @@ const TopNavbar = ({ onProfilePress, onReferPress, onLogout, onLittiesPress, onN
       cancelled = true;
       clearInterval(interval);
     };
-  }, [token]);
+  }, [token, user?.id]);
 
   // Wallet animations
   const walletScale = useRef(new Animated.Value(1)).current;
