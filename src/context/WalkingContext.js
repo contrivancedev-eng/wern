@@ -51,13 +51,17 @@ const writePendingEvents = async (list) => {
 // would read the queue, re-send events, and write stale data back.
 let flushingQueue = false;
 
-// Fetch the authoritative daily totals (steps, km, kcal, litres, goal)
-// from get-digital-vault-data. Returns range_summary on success, else null.
-const fetchDailyStats = async (token) => {
+// Fetch today's authoritative totals (steps, goal, km, kcal, litres)
+// via get-digital-vault-data with filter=hourly. The Today's Progress
+// card only needs the `range_summary` block — the other sections of
+// the payload (breakdown, category_data, recent_transactions, …) are
+// ignored here and can be consumed elsewhere if needed.
+const fetchDailyStats = async (token, categoryId) => {
   if (!token) return null;
   try {
+    const qs = categoryId != null ? `&category_id=${categoryId}` : '';
     const { json } = await apiFetch(
-      `${API_URL}get-digital-vault-data?token=${token}&filter=daily`,
+      `${API_URL}get-digital-vault-data?token=${token}&filter=hourly${qs}`,
       { headers: { Accept: 'application/json' } }
     );
     if (json?.status === true && json?.data?.range_summary) {
@@ -65,7 +69,7 @@ const fetchDailyStats = async (token) => {
     }
     return null;
   } catch (e) {
-    console.log('get-digital-vault-data failed:', e?.message);
+    console.log('get-digital-vault-data (hourly) failed:', e?.message);
     return null;
   }
 };
@@ -275,11 +279,6 @@ export const WalkingProvider = ({ children }) => {
     return ((steps * STRIDE_LENGTH_METERS) / 1000).toFixed(2);
   };
   const calculateKcal = (steps) => Math.round(steps * 0.05);
-  // Server grants ~1 litre per 100 steps (matches the ack returned for
-  // early walks). We compute locally so the UI doesn't stall between
-  // ticks; the number is corrected by the server anchor once a fresh
-  // ack arrives.
-  const calculateLitres = (steps) => (Math.floor(steps / 100)).toFixed(2);
 
   const anchoredKilometre = (steps) => {
     const a = kmServerAnchor.current;
@@ -287,17 +286,25 @@ export const WalkingProvider = ({ children }) => {
     const deltaSteps = Math.max(0, steps - a.stepsAtAck);
     return (Number(a.valueAtAck) + (deltaSteps * 0.75) / 1000).toFixed(2);
   };
+  // kcal is server-authoritative. Return the server anchor value
+  // verbatim once it exists; fall back to local formula only while
+  // waiting for the first server response.
   const anchoredKcal = (steps) => {
     const a = kcalServerAnchor.current;
     if (!a) return calculateKcal(steps);
-    const deltaSteps = Math.max(0, steps - a.stepsAtAck);
-    return Math.round(Number(a.valueAtAck) + deltaSteps * 0.05);
+    const v = Number(a.valueAtAck);
+    return Number.isFinite(v) ? Math.round(v) : 0;
   };
-  const anchoredLitres = (steps) => {
+  // Litties are server-authoritative — don't estimate locally from
+  // step count because the backend's accrual rules (bonuses, tiers,
+  // cause multipliers) don't match `floor(steps/100)` and showing a
+  // local number is misleading. Until the server answers, show 0.00;
+  // after an ack arrives, show exactly what the server said.
+  const anchoredLitres = (_steps) => {
     const a = litresServerAnchor.current;
-    if (!a) return calculateLitres(steps);
-    const deltaSteps = Math.max(0, steps - a.stepsAtAck);
-    return (Number(a.valueAtAck) + Math.floor(deltaSteps / 100)).toFixed(2);
+    if (!a) return '0.00';
+    const v = Number(a.valueAtAck);
+    return Number.isFinite(v) ? v.toFixed(2) : '0.00';
   };
 
   // Recompute every metric whenever the step count changes — no
@@ -319,7 +326,12 @@ export const WalkingProvider = ({ children }) => {
   // interval hasn't been running), so each server value is taken as
   // max(server, local_formula_at_stepsAtAck). That way a stale ack
   // can only ADD information, never downgrade the displayed number.
-  const applyServerAnchors = (data, stepsAtAck) => {
+  // `opts.skipLitres` — save-step-event returns a litres value scoped
+  // to the walking session / category, which can be smaller than the
+  // aggregated day total that get-digital-vault-data returns. Letting
+  // save-step-event overwrite the anchor makes Litties regress (e.g.
+  // 10 → 5). Callers from the step-event tick pass skipLitres=true.
+  const applyServerAnchors = (data, stepsAtAck, opts = {}) => {
     if (!data) return;
     if (data.goal && data.goal > 0) setGoalSteps(data.goal);
     if (data.kilometre !== undefined && data.kilometre !== null) {
@@ -331,23 +343,30 @@ export const WalkingProvider = ({ children }) => {
         setKilometre(anchoredKilometre(stepsAtAck));
       }
     }
-    if (data.kcal !== undefined && data.kcal !== null) {
+    // kcal is server-authoritative (same reasoning as litres — local
+    // formula 0.05 × steps doesn't match the backend's calculation).
+    // Gated by skipKcal so save-step-event's session-scoped value
+    // doesn't overwrite the aggregated daily total.
+    if (!opts.skipKcal && data.kcal !== undefined && data.kcal !== null) {
       const v = typeof data.kcal === 'number' ? data.kcal : Number(data.kcal);
       if (!Number.isNaN(v)) {
-        const localAtAck = calculateKcal(stepsAtAck);
-        const merged = Math.max(v, localAtAck);
-        kcalServerAnchor.current = { stepsAtAck, valueAtAck: merged };
+        kcalServerAnchor.current = { stepsAtAck, valueAtAck: v };
         setKcal(anchoredKcal(stepsAtAck));
       }
     }
-    const litresValue = data.litres ?? data.liters ?? data.water;
-    if (litresValue !== undefined && litresValue !== null) {
-      const v = typeof litresValue === 'number' ? litresValue : Number(litresValue);
-      if (!Number.isNaN(v)) {
-        const localAtAck = Number(calculateLitres(stepsAtAck));
-        const merged = Math.max(v, localAtAck);
-        litresServerAnchor.current = { stepsAtAck, valueAtAck: merged };
-        setLitres(anchoredLitres(stepsAtAck));
+    // Litties come straight from the server — no max(server, local)
+    // merge because the backend's accrual rules don't match the naive
+    // floor(steps/100) formula. Showing a local estimate would mislead.
+    // Gated by skipLitres so save-step-event can't overwrite with its
+    // session-scoped value.
+    if (!opts.skipLitres) {
+      const litresValue = data.litres ?? data.liters ?? data.water;
+      if (litresValue !== undefined && litresValue !== null) {
+        const v = typeof litresValue === 'number' ? litresValue : Number(litresValue);
+        if (!Number.isNaN(v)) {
+          litresServerAnchor.current = { stepsAtAck, valueAtAck: v };
+          setLitres(anchoredLitres(stepsAtAck));
+        }
       }
     }
   };
@@ -497,6 +516,19 @@ export const WalkingProvider = ({ children }) => {
         } catch (e) {
           console.log('BackgroundStepService reset failed:', e?.message);
         }
+
+        // Pull fresh day's baseline from the server. Handles the case
+        // where JS was paused through midnight (app killed or OS
+        // suspended the timer) — we still get an accurate today-from-0
+        // baseline as soon as the app notices the date has changed.
+        try {
+          if (refreshDailyStatsRef.current) {
+            console.log('🌙 New-day detected on launch/foreground — calling get-digital-vault-data?filter=hourly');
+            await refreshDailyStatsRef.current();
+          }
+        } catch (e) {
+          console.log('New-day get-digital-vault-data?filter=hourly failed:', e?.message);
+        }
       }
 
       // Update last date in BOTH user-specific and legacy keys so
@@ -587,6 +619,21 @@ export const WalkingProvider = ({ children }) => {
           date: today,
         }));
 
+        // Pull the fresh day's baseline from the server right after
+        // reset. This ensures the client is aligned with whatever the
+        // backend counts as day-start (same timezone, handles edge
+        // cases around clock drift) and seeds Litties / goal /
+        // anchors so the Today's Progress card is accurate from the
+        // first second of the new day.
+        try {
+          if (refreshDailyStatsRef.current) {
+            console.log('🌙 Midnight sync: calling get-digital-vault-data?filter=hourly');
+            await refreshDailyStatsRef.current();
+          }
+        } catch (e) {
+          console.log('Midnight get-digital-vault-data?filter=hourly failed:', e?.message);
+        }
+
         // Set up next midnight reset
         setupMidnightReset();
       }, timeUntilMidnight);
@@ -654,42 +701,74 @@ export const WalkingProvider = ({ children }) => {
           const isFreshEnough = sessionAge < MAX_SESSION_MS;
 
           if (isFreshEnough) {
+            // Detect midnight rollover: if the session started yesterday
+            // (or earlier), keep the walking state active but discard
+            // yesterday's accumulated counters. Otherwise today's
+            // "stepCount" shows yesterday's steps + any new ones, and
+            // the UI never resets at midnight. This bug was visible as
+            // "yesterday's steps kept going" on app relaunch.
+            const todayStr = new Date().toDateString();
+            const sessionStartedToday = sessionStart
+              ? sessionStart.toDateString() === todayStr
+              : false;
+
             setIsWalking(true);
             setActiveCause(state.activeCause);
             // Mirror the cause into the ref so the 3s save-step-event
             // tick can actually fire — without this, the tick sees
             // `currentCauseId.current === null` and bails every time.
             currentCauseId.current = state.activeCause;
-            sessionStartSteps.current = sanitizeStepCount(state.sessionStartSteps || 0);
+            sessionStartSteps.current = sessionStartedToday
+              ? sanitizeStepCount(state.sessionStartSteps || 0)
+              : 0;
 
             // CRITICAL: Use NOW as the walking start time for restored sessions
             // The old start time from storage won't work because pedometer can't
             // track from a timestamp when the app wasn't running
             walkingStartTime.current = new Date();
 
-            // Restore session steps
-            const savedSessionSteps = sanitizeStepCount(state.sessionSteps || 0);
+            // Restore session steps ONLY if the session is from today.
+            const savedSessionSteps = sessionStartedToday
+              ? sanitizeStepCount(state.sessionSteps || 0)
+              : 0;
             if (savedSessionSteps > 0) {
               setSessionSteps(savedSessionSteps);
+            } else {
+              setSessionSteps(0);
             }
 
             // Calculate total steps for notification and restore.
             // If the native foreground service kept running while the app
             // was killed/backgrounded, its `currentSteps` is the source of
             // truth — take the max so we never lose steps counted while
-            // the JS side was dead. Sanitize every input so a corrupted
-            // value from any source doesn't seed the new session.
-            let totalStepsRestored = sanitizeStepCount(state.sessionStartSteps || 0) + savedSessionSteps;
-            try {
-              const nativeSteps = sanitizeStepCount(await BackgroundStepService.getCurrentStepCount());
-              if (nativeSteps && nativeSteps > totalStepsRestored) {
-                console.log('📱 Native service has more steps than AsyncStorage:', nativeSteps, '>', totalStepsRestored);
-                totalStepsRestored = nativeSteps;
+            // the JS side was dead. For cross-midnight sessions we skip
+            // the restore entirely and let the fresh pedometer poll
+            // rebuild today's count from 0.
+            let totalStepsRestored = sessionStartedToday
+              ? sanitizeStepCount(state.sessionStartSteps || 0) + savedSessionSteps
+              : 0;
+            if (sessionStartedToday) {
+              try {
+                const nativeSteps = sanitizeStepCount(await BackgroundStepService.getCurrentStepCount());
+                if (nativeSteps && nativeSteps > totalStepsRestored) {
+                  console.log('📱 Native service has more steps than AsyncStorage:', nativeSteps, '>', totalStepsRestored);
+                  totalStepsRestored = nativeSteps;
+                }
+              } catch (e) {
+                console.log('Error reading native step count on restore:', e?.message);
               }
-            } catch (e) {
-              console.log('Error reading native step count on restore:', e?.message);
+              totalStepsRestored = sanitizeStepCount(totalStepsRestored);
+            } else {
+              console.log('📅 Overnight session detected — resetting today\'s step count to 0 while keeping walk active');
+              // Also reset the native background service counters so
+              // the foreground notification doesn't show yesterday's
+              // total anymore.
+              try {
+                await BackgroundStepService.resetForNewDay();
+              } catch (e) {
+                console.log('BackgroundStepService reset on overnight restore failed:', e?.message);
+              }
             }
-            totalStepsRestored = sanitizeStepCount(totalStepsRestored);
 
             // Mark this as a restored session so pedometer handler adds to existing count
             isRestoredSession.current = true;
@@ -922,7 +1001,11 @@ export const WalkingProvider = ({ children }) => {
           });
           if (ackData) {
             lastSentSteps.current = currentCount;
-            applyServerAnchors(ackData, currentCount);
+            // save-step-event returns a session/category-scoped litres
+            // value that can be smaller than the aggregated day total.
+            // Only update km/kcal/goal here; Litties stays anchored to
+            // get-digital-vault-data's range_summary.
+            applyServerAnchors(ackData, currentCount, { skipLitres: true, skipKcal: true });
           }
         }
       }
@@ -1377,7 +1460,10 @@ export const WalkingProvider = ({ children }) => {
       if (ackData) {
         lastSentSteps.current = totalSteps;
         console.log('📤 Sent delta steps:', deltaSteps, '(total:', totalSteps, ') ack:', ackData);
-        applyServerAnchors(ackData, totalSteps);
+        // Skip litres — save-step-event's value is session-scoped and
+        // can be smaller than the aggregated day total. Litties stays
+        // anchored to get-digital-vault-data.
+        applyServerAnchors(ackData, totalSteps, { skipLitres: true, skipKcal: true });
         const litresValue = ackData.litres ?? ackData.liters ?? ackData.water;
 
         const localStepCount = currentStepCountRef.current;
@@ -1430,12 +1516,26 @@ export const WalkingProvider = ({ children }) => {
       }
     }, 10000);
 
+    // Periodic refresh of get-digital-vault-data while walking — the
+    // `save-step-event` ack is session/category-scoped and skips
+    // kcal/litres, so without this pull the Today's Progress card
+    // would never see the aggregated day values update between app
+    // launches. Every 30s is a reasonable middle ground between
+    // freshness and server load.
+    const dailyStatsRefresh = setInterval(() => {
+      if (!isWalking) return;
+      if (refreshDailyStatsRef.current) {
+        refreshDailyStatsRef.current().catch(() => {});
+      }
+    }, 30000);
+
     return () => {
       if (socketSendInterval.current) {
         clearInterval(socketSendInterval.current);
         socketSendInterval.current = null;
       }
       clearInterval(heartbeat);
+      clearInterval(dailyStatsRefresh);
       syncTickRef.current = null;
       console.log('⏹ Stopped save-step-event sync interval');
     };
@@ -1595,7 +1695,10 @@ export const WalkingProvider = ({ children }) => {
   const refreshDailyStatsFromServer = useCallback(async (tokenOverride) => {
     const token = tokenOverride ?? currentToken.current;
     if (!token) return;
-    const summary = await fetchDailyStats(token);
+    // Today's Progress card shows totals across all causes, so pass
+    // categoryId = null — the server treats a missing category_id as
+    // "all categories today".
+    const summary = await fetchDailyStats(token, null);
     if (!summary) return;
     // Anchor to the current step count so stats carry on updating
     // locally between tick intervals.
