@@ -59,9 +59,14 @@ let flushingQueue = false;
 const fetchDailyStats = async (token, categoryId) => {
   if (!token) return null;
   try {
+    // Compute today's date fresh on every call so when this fires
+    // from the midnight reset we hit the API with the new day's date
+    // and pick up the new day's range_summary instead of yesterday's.
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const qs = categoryId != null ? `&category_id=${categoryId}` : '';
     const { json } = await apiFetch(
-      `${API_URL}get-digital-vault-data?token=${token}&filter=hourly${qs}`,
+      `${API_URL}get-digital-vault-data?token=${token}&date=${date}&filter=hourly${qs}`,
       { headers: { Accept: 'application/json' } }
     );
     if (json?.status === true && json?.data?.range_summary) {
@@ -217,11 +222,22 @@ const DEFAULT_GOAL_STEPS = 10000;
 // in a single day is ~100k; anything above MAX_DAILY_STEPS is definitely
 // a data bug, so we clamp rather than show 3.8 million.
 const MAX_DAILY_STEPS = 150000;
-// Max new steps in one pedometer tick. Real humans top out around ~4
-// steps per second (~240/min). We budget generously for ticks that may
-// bundle a few seconds of motion; anything larger indicates a bad
-// CMPedometer reading or a corrupted baseline and is rejected.
-const MAX_STEPS_PER_TICK = 1000;
+// Max new steps in one 1-second pedometer tick. Real humans top out around
+// ~5 steps/sec when running. We budget generously at 50× that to absorb
+// burst syncs from native foreground service catch-ups, but anything
+// above this is definitely a sensor / API bug and is rejected.
+const MAX_STEPS_PER_TICK = 250;
+// Max delta we'll ever POST to save-step-event in one request. Sized
+// to absorb legitimate catch-ups (e.g. user walked 8k steps offline,
+// app resumes, native count syncs into JS state, first tick fires a
+// big delta) without truncation, while still rejecting truly absurd
+// values from a runaway client. 10k steps in one 3-second tick is
+// ~3300 steps/sec — physically impossible for a human.
+const MAX_STEPS_PER_POST = 10000;
+// Max stepCount jump we'll accept from a one-shot foreground / native-service
+// catch-up (i.e. user walked offline, came back to the app). Catch-ups
+// should be < this; anything bigger means a corrupted source.
+const MAX_CATCHUP_JUMP = 50000;
 
 // If AsyncStorage / state claims the user has more than MAX_DAILY_STEPS
 // today, the value is corrupted. Returns a number that is safe to use.
@@ -244,6 +260,22 @@ const clampStepUpdate = (prev, next) => {
     return prev;
   }
   return Math.max(prev, capped);
+};
+
+// Catch-up updates (foreground sync from native service, server refresh,
+// session restore) can legitimately bump stepCount by thousands at once
+// — but they still need a sanity ceiling. Allows up to MAX_CATCHUP_JUMP
+// per call; anything beyond that is treated as corrupted upstream data
+// and rejected so the bug can't propagate into our state.
+const clampCatchupUpdate = (prev, next, label = 'catchup') => {
+  if (!Number.isFinite(next) || next < 0) return prev;
+  const capped = Math.min(next, MAX_DAILY_STEPS);
+  if (capped <= prev) return prev;
+  if (capped - prev > MAX_CATCHUP_JUMP) {
+    console.log(`⚠️ Rejected implausible ${label} jump: ${prev} → ${capped}`);
+    return prev;
+  }
+  return capped;
 };
 
 export const WalkingProvider = ({ children }) => {
@@ -333,7 +365,13 @@ export const WalkingProvider = ({ children }) => {
   // 10 → 5). Callers from the step-event tick pass skipLitres=true.
   const applyServerAnchors = (data, stepsAtAck, opts = {}) => {
     if (!data) return;
-    if (data.goal && data.goal > 0) setGoalSteps(data.goal);
+    // Do not sync goal here — save-step-event ack and get-digital-vault-data
+    // range_summary can return a `goal` that isn't the user's daily step goal
+    // (e.g. a category goal or a server default). That clobbered the value set
+    // by fetchTodaySummary → updateGoalSteps, leaving FloatingStepCounter
+    // showing 10000 while the WalkScreen progress card correctly showed the
+    // user's goal. The user's daily step goal flows only through
+    // updateGoalSteps (from get-step-summary-today / save-user-goals).
     if (data.kilometre !== undefined && data.kilometre !== null) {
       const v = typeof data.kilometre === 'number' ? data.kilometre : Number(data.kilometre);
       if (!Number.isNaN(v)) {
@@ -443,7 +481,13 @@ export const WalkingProvider = ({ children }) => {
   // Session restore tracking
   const isRestoredSession = useRef(false); // Track if current session was restored from storage
   const restoredStepCount = useRef(0); // Step count when session was restored
-  const lastPedometerSteps = useRef(0); // Last known pedometer value for incremental counting
+  const lastPedometerSteps = useRef(0); // Legacy — kept for compatibility with the catch-up "reset" lines below.
+  // Separate baselines for the two pedometer APIs because Android's
+  // watchStepCount and getStepCountAsync can return values on different
+  // scales (subscription-relative vs. cumulative). Sharing one baseline
+  // would make them re-baseline each other and lose real steps.
+  const lastWatchSteps = useRef(0);
+  const lastPollSteps = useRef(0);
 
   // Milestone tracking - notify every 100 steps
   const lastMilestoneReached = useRef(0);
@@ -489,7 +533,7 @@ export const WalkingProvider = ({ children }) => {
         walkingStartTime.current = new Date();
         isRestoredSession.current = false;
         restoredStepCount.current = 0;
-        lastPedometerSteps.current = 0;
+        lastPedometerSteps.current = 0; lastWatchSteps.current = 0; lastPollSteps.current = 0;
 
         // Reset stats + clear server anchors so yesterday's authoritative
         // totals don't leak into today's live calculations.
@@ -586,7 +630,7 @@ export const WalkingProvider = ({ children }) => {
         walkingStartTime.current = new Date();
         isRestoredSession.current = false;
         restoredStepCount.current = 0;
-        lastPedometerSteps.current = 0;
+        lastPedometerSteps.current = 0; lastWatchSteps.current = 0; lastPollSteps.current = 0;
 
         // Reset stats + clear server anchors so yesterday's authoritative
         // totals don't leak into today's live calculations.
@@ -773,7 +817,7 @@ export const WalkingProvider = ({ children }) => {
             // Mark this as a restored session so pedometer handler adds to existing count
             isRestoredSession.current = true;
             restoredStepCount.current = totalStepsRestored;
-            lastPedometerSteps.current = 0; // Will track incremental steps from NOW
+            lastPedometerSteps.current = 0; lastWatchSteps.current = 0; lastPollSteps.current = 0;
 
             // Set the step count immediately to the restored value
             setStepCount(totalStepsRestored);
@@ -829,10 +873,10 @@ export const WalkingProvider = ({ children }) => {
       // Try to get steps from pedometer (for today only)
       if (available) {
         try {
-          const steps = await StepCounterService.getTodaySteps();
+          const steps = sanitizeStepCount(await StepCounterService.getTodaySteps());
           if (steps > 0) {
-            setTodaySteps(steps);
-            setStepCount(prev => Math.max(prev, steps));
+            setTodaySteps(prev => clampCatchupUpdate(prev, steps, 'init-pedometer-today'));
+            setStepCount(prev => clampCatchupUpdate(prev, steps, 'init-pedometer'));
           }
         } catch (e) {
           console.log('Error getting pedometer steps:', e);
@@ -848,8 +892,9 @@ export const WalkingProvider = ({ children }) => {
           console.log('Loading saved daily stats:', stats);
           // Load step count from daily stats (takes priority over STEP_COUNT_KEY)
           if (stats.stepCount !== undefined && stats.stepCount > 0) {
-            setStepCount(prev => Math.max(prev, stats.stepCount));
-            setTodaySteps(prev => Math.max(prev, stats.stepCount));
+            const cleanStored = sanitizeStepCount(stats.stepCount);
+            setStepCount(prev => clampCatchupUpdate(prev, cleanStored, 'init-daily-stats'));
+            setTodaySteps(prev => clampCatchupUpdate(prev, cleanStored, 'init-daily-stats-today'));
           }
           // Only load litres from storage (km/kcal are calculated from stepCount)
           setLitres(stats.litres || '0.00');
@@ -948,8 +993,9 @@ export const WalkingProvider = ({ children }) => {
         const watchSteps = data.stepCount;
         const phoneSteps = currentStepCountRef.current;
         if (watchSteps > phoneSteps) {
-          console.log(`⌚ Watch has more steps (${watchSteps} > ${phoneSteps}), merging`);
-          setStepCount(watchSteps);
+          const cleanWatchSteps = sanitizeStepCount(watchSteps);
+          console.log(`⌚ Watch has more steps (${cleanWatchSteps} > ${phoneSteps}), merging`);
+          setStepCount(prev => clampCatchupUpdate(prev, cleanWatchSteps, 'watch-merge'));
         }
       }
       // If watch started a walk, start on phone too
@@ -1028,35 +1074,37 @@ export const WalkingProvider = ({ children }) => {
           if (bgResult) {
             console.log('📱 Background sync result:', bgResult);
           }
-          const storedCount = await BackgroundStepService.getCurrentStepCount();
+          const storedCount = sanitizeStepCount(await BackgroundStepService.getCurrentStepCount());
           if (storedCount > 0) {
-            setStepCount(prev => Math.max(prev, storedCount));
+            setStepCount(prev => clampCatchupUpdate(prev, storedCount, 'native-fg-sync'));
             console.log('📱 Updated from native service count:', storedCount);
+            // Re-baseline pedometer so the next watch/poll callback
+            // doesn't replay the catch-up as new steps.
+            lastPedometerSteps.current = 0; lastWatchSteps.current = 0; lastPollSteps.current = 0;
           }
         } catch (error) {
           console.log('Error syncing background steps:', error);
         }
 
-        // Get steps from pedometer directly
+        // Get steps from pedometer directly. We use this only for the
+        // CATCH-UP value at resume time — not for incremental tracking
+        // (which is handled by the watch + poll loops below). The
+        // resume path may legitimately need to bump stepCount up by
+        // many steps if the user walked while the app was suspended.
         if (isPedometerAvailable && isWalking && walkingStartTime.current) {
           try {
             const now = new Date();
             const result = await Pedometer.getStepCountAsync(walkingStartTime.current, now);
             console.log('📱 Pedometer foreground result:', result);
-            if (result && result.steps > 0) {
-              // For restored sessions, handle incremental update
-              if (isRestoredSession.current) {
-                const newTotal = restoredStepCount.current + result.steps;
-                setSessionSteps(prev => Math.max(prev, result.steps));
-                setStepCount(prev => Math.max(prev, newTotal));
-              } else {
-                // Update session steps from pedometer (more accurate for background)
-                setSessionSteps(result.steps);
-                setStepCount(prev => {
-                  const newCount = sessionStartSteps.current + result.steps;
-                  return Math.max(prev, newCount);
-                });
-              }
+            if (result && Number.isFinite(result.steps) && result.steps > 0 && result.steps <= MAX_DAILY_STEPS) {
+              const candidate = isRestoredSession.current
+                ? restoredStepCount.current + result.steps
+                : sessionStartSteps.current + result.steps;
+              setStepCount(prev => clampCatchupUpdate(prev, candidate, 'pedometer-fg-sync'));
+              setSessionSteps(prev => Math.max(prev, result.steps));
+              // Re-baseline so the running watch/poll loops don't
+              // double-add the same delta on their next tick.
+              lastPedometerSteps.current = 0; lastWatchSteps.current = 0; lastPollSteps.current = 0;
             }
           } catch (error) {
             console.log('Error getting pedometer steps on foreground:', error);
@@ -1090,215 +1138,163 @@ export const WalkingProvider = ({ children }) => {
   const lastWatchUpdate = useRef(Date.now());
 
   useEffect(() => {
-    if (isWalking) {
-      // PEDOMETER: Primary step counting
-      if (isPedometerAvailable) {
-        console.log('📊 Starting pedometer for step counting');
+    if (!isWalking) return undefined;
 
-        // Method 1: Real-time watch (for immediate feedback, but can drop)
-        const startWatchSubscription = () => {
-          if (pedometerSubscription.current) {
-            pedometerSubscription.current.remove();
-          }
-          pedometerSubscription.current = Pedometer.watchStepCount(async (result) => {
-            lastWatchUpdate.current = Date.now(); // Track last update time
-
-            // Defensive: CMPedometer has been observed to return wildly
-            // inflated step totals on iOS (HealthKit/iCloud edge cases).
-            // Anything above MAX_DAILY_STEPS in a single callback is a
-            // bad reading — drop it before it poisons state.
-            if (!Number.isFinite(result?.steps) || result.steps < 0 || result.steps > MAX_DAILY_STEPS) {
-              console.log('⚠️ watchStepCount: ignoring implausible result', result?.steps);
-              return;
-            }
-
-            let newTotalSteps = 0;
-            if (isRestoredSession.current) {
-              const incrementalSteps = result.steps - lastPedometerSteps.current;
-              if (incrementalSteps > 0) {
-                newTotalSteps = restoredStepCount.current + result.steps;
-                setSessionSteps(prev => prev + incrementalSteps);
-                setStepCount(prev => {
-                  const finalCount = clampStepUpdate(prev, newTotalSteps);
-                  currentStepCountRef.current = finalCount;
-                  return finalCount;
-                });
-                lastPedometerSteps.current = result.steps;
-              }
-            } else {
-              newTotalSteps = sessionStartSteps.current + result.steps;
-              setSessionSteps(result.steps);
-              setStepCount(prev => {
-                const finalCount = clampStepUpdate(prev, newTotalSteps);
-                currentStepCountRef.current = finalCount;
-                return finalCount;
-              });
-            }
-
-            if (newTotalSteps > 0 && newTotalSteps <= MAX_DAILY_STEPS) {
-              AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
-                count: newTotalSteps,
-                date: new Date().toDateString(),
-              })).catch(() => {});
-            }
-          });
-        };
-
-        startWatchSubscription();
-
-        // Method 2: Poll every 1 second - this is the RELIABLE source
-        // Also restarts watch subscription if it seems stuck (no updates for 5 seconds)
-        pedometerSyncInterval.current = setInterval(async () => {
-          if (walkingStartTime.current) {
-            try {
-              const now = new Date();
-
-              // Safety clamp: if the walking start time is from a
-              // different day (e.g. session crossed midnight without a
-              // proper reset), roll it forward to start-of-today so the
-              // pedometer query doesn't pull yesterday's steps.
-              if (walkingStartTime.current.toDateString() !== now.toDateString()) {
-                const startOfToday = new Date(now);
-                startOfToday.setHours(0, 0, 0, 0);
-                walkingStartTime.current = startOfToday;
-                sessionStartSteps.current = 0;
-                console.log('📊 walkingStartTime crossed day boundary, clamped to start-of-today');
-              }
-
-              const result = await Pedometer.getStepCountAsync(walkingStartTime.current, now);
-
-              // Reject implausible readings before they corrupt state.
-              // Same root cause as the watch callback — CMPedometer can
-              // briefly return millions of steps on iOS.
-              if (!result || !Number.isFinite(result.steps) || result.steps < 0 || result.steps > MAX_DAILY_STEPS) {
-                if (result && result.steps > MAX_DAILY_STEPS) {
-                  console.log('⚠️ getStepCountAsync: ignoring implausible result', result.steps);
-                }
-              } else {
-                let newTotalSteps = 0;
-
-                if (isRestoredSession.current) {
-                  newTotalSteps = restoredStepCount.current + result.steps;
-                } else {
-                  newTotalSteps = sessionStartSteps.current + result.steps;
-                }
-
-                // Always update session steps from poll (more reliable)
-                setSessionSteps(result.steps);
-
-                // Update step count with clamp (absolute ceiling +
-                // per-tick jump limit). Without these, one bad reading
-                // becomes permanent because Math.max never lets it fall.
-                setStepCount(prev => {
-                  const finalCount = clampStepUpdate(prev, newTotalSteps);
-                  if (finalCount > prev) {
-                    console.log('📊 Pedometer poll update:', { sessionSteps: result.steps, total: finalCount });
-                    currentStepCountRef.current = finalCount;
-                    AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
-                      count: finalCount,
-                      date: new Date().toDateString(),
-                    })).catch(() => {});
-                  }
-                  return finalCount;
-                });
-              }
-
-              // Health check: restart watch subscription if stuck for over 5 seconds
-              const timeSinceLastWatch = Date.now() - lastWatchUpdate.current;
-              if (timeSinceLastWatch > 5000) {
-                console.log('📊 Watch subscription may be stuck, restarting...');
-                startWatchSubscription();
-                lastWatchUpdate.current = Date.now();
-              }
-            } catch (e) {
-              console.log('Pedometer poll error:', e.message);
-            }
-          }
-        }, 1000); // Poll every 1 second for reliable counting
-      }
-
-      // ACCELEROMETER: Only used as FALLBACK when pedometer is not available
-      if (Platform.OS !== 'web' && !isPedometerAvailable) {
-        console.log('📊 Using accelerometer as fallback (no pedometer)');
-        let lastAccelSaveTime = 0;
-        const ACCEL_SAVE_INTERVAL = 2000;
-
-        // More sensitive settings for better detection
-        Accelerometer.setUpdateInterval(50); // 50ms = 20 updates/second (more responsive)
-        accelerometerSubscription.current = Accelerometer.addListener(({ x, y, z }) => {
-          const magnitude = Math.sqrt(x * x + y * y + z * z);
-          const now = Date.now();
-
-          magnitudeHistory.current.push(magnitude);
-          if (magnitudeHistory.current.length > HISTORY_SIZE) {
-            magnitudeHistory.current.shift();
-          }
-
-          const smoothedMagnitude = magnitudeHistory.current.reduce((a, b) => a + b, 0) / magnitudeHistory.current.length;
-          const timeSinceLastStep = now - lastStepTime.current;
-
-          // More sensitive step detection
-          if (
-            lastMagnitude.current > stepThreshold &&
-            smoothedMagnitude < lastMagnitude.current &&
-            lastMagnitude.current > smoothedMagnitude + 0.02 && // Lower threshold for better sensitivity
-            timeSinceLastStep > minStepInterval &&
-            !isStepPeak.current
-          ) {
-            isStepPeak.current = true;
-            lastStepTime.current = now;
-
-            setSessionSteps(prev => prev + 1);
+    if (isPedometerAvailable) {
+      // ANDROID — native foreground service is the SINGLE source of truth.
+      // We poll it every second and apply the value via the catch-up
+      // clamp (which prevents impossible jumps but lets normal step
+      // accumulation through). We deliberately do NOT subscribe to
+      // expo-sensors' Pedometer APIs on Android because:
+      //   * watchStepCount returns subscription-relative values
+      //   * getStepCountAsync returns cumulative-since-boot or
+      //     Google-Fit-history values
+      // Mixing the two with the same `restoredStepCount + result.steps`
+      // formula was the root cause of the runaway-step-count bug.
+      if (Platform.OS === 'android') {
+        console.log('📊 Starting native step polling (Android)');
+        const pollNative = async () => {
+          try {
+            const raw = await BackgroundStepService.getCurrentStepCount();
+            const native = sanitizeStepCount(raw);
+            if (native <= 0) return;
             setStepCount(prev => {
-              const newCount = prev + 1;
-              currentStepCountRef.current = newCount;
-
-              // Save immediately but throttle to avoid too many writes
-              if (now - lastAccelSaveTime > ACCEL_SAVE_INTERVAL) {
-                lastAccelSaveTime = now;
+              const finalCount = clampCatchupUpdate(prev, native, 'native-poll');
+              if (finalCount > prev) {
+                currentStepCountRef.current = finalCount;
+                setSessionSteps(s => s + (finalCount - prev));
                 AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
-                  count: newCount,
+                  count: finalCount,
                   date: new Date().toDateString(),
                 })).catch(() => {});
               }
-
-              return newCount;
+              return finalCount;
             });
+          } catch (e) {
+            // Native service may not be running yet — silent
           }
-
-          // Reset peak flag when magnitude drops below threshold
-          if (smoothedMagnitude < stepThreshold - 0.08) {
-            isStepPeak.current = false;
+        };
+        // Fire once immediately so the UI doesn't wait a full second.
+        pollNative();
+        pedometerSyncInterval.current = setInterval(pollNative, 1000);
+      } else {
+        // iOS — same single-source-of-truth approach as Android, but
+        // polling CMPedometer's history API instead. CMPedometer's
+        // queryPedometerData (which Pedometer.getStepCountAsync wraps)
+        // is reliable on iOS for arbitrary time ranges and returns
+        // the authoritative step total, including steps the system
+        // counted while the app was suspended in the background.
+        //
+        // We deliberately do NOT use watchStepCount — it's been
+        // observed to silently drop subscriptions and the dual
+        // watch-plus-poll architecture caused double-counting.
+        console.log('📊 Starting CMPedometer polling (iOS)');
+        const pollIOS = async () => {
+          try {
+            const now = new Date();
+            const startOfDay = new Date(now);
+            startOfDay.setHours(0, 0, 0, 0);
+            const result = await Pedometer.getStepCountAsync(startOfDay, now);
+            if (!result || !Number.isFinite(result.steps) || result.steps < 0 || result.steps > MAX_DAILY_STEPS) {
+              return;
+            }
+            const todayTotal = sanitizeStepCount(result.steps);
+            if (todayTotal <= 0) return;
+            setStepCount(prev => {
+              const finalCount = clampCatchupUpdate(prev, todayTotal, 'ios-poll');
+              if (finalCount > prev) {
+                currentStepCountRef.current = finalCount;
+                setSessionSteps(s => s + (finalCount - prev));
+                AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
+                  count: finalCount,
+                  date: new Date().toDateString(),
+                })).catch(() => {});
+              }
+              return finalCount;
+            });
+          } catch (e) {
+            // Silent — pedometer permission may not be granted yet
           }
-
-          lastMagnitude.current = smoothedMagnitude;
-        });
+        };
+        // Fire once immediately so the UI doesn't wait a full second.
+        pollIOS();
+        pedometerSyncInterval.current = setInterval(pollIOS, 1000);
       }
-
+    } else if (Platform.OS === 'web') {
       // Simulate steps on web for testing
-      if (Platform.OS === 'web') {
-        const simulateInterval = setInterval(() => {
-          setSessionSteps(prev => prev + 1);
-          setStepCount(prev => prev + 1);
-        }, 1000);
-        accelerometerSubscription.current = { remove: () => clearInterval(simulateInterval) };
-      }
+      const simulateInterval = setInterval(() => {
+        setSessionSteps(prev => prev + 1);
+        setStepCount(prev => prev + 1);
+      }, 1000);
+      accelerometerSubscription.current = { remove: () => clearInterval(simulateInterval) };
+    } else {
+      // ACCELEROMETER: Only used as FALLBACK when pedometer is not available
+      console.log('📊 Using accelerometer as fallback (no pedometer)');
+      let lastAccelSaveTime = 0;
+      const ACCEL_SAVE_INTERVAL = 2000;
 
-      return () => {
-        if (accelerometerSubscription.current) {
-          accelerometerSubscription.current.remove();
-          accelerometerSubscription.current = null;
+      Accelerometer.setUpdateInterval(50); // 50ms = 20 updates/second (more responsive)
+      accelerometerSubscription.current = Accelerometer.addListener(({ x, y, z }) => {
+        const magnitude = Math.sqrt(x * x + y * y + z * z);
+        const now = Date.now();
+
+        magnitudeHistory.current.push(magnitude);
+        if (magnitudeHistory.current.length > HISTORY_SIZE) {
+          magnitudeHistory.current.shift();
         }
-        if (pedometerSubscription.current) {
-          pedometerSubscription.current.remove();
-          pedometerSubscription.current = null;
+
+        const smoothedMagnitude = magnitudeHistory.current.reduce((a, b) => a + b, 0) / magnitudeHistory.current.length;
+        const timeSinceLastStep = now - lastStepTime.current;
+
+        if (
+          lastMagnitude.current > stepThreshold &&
+          smoothedMagnitude < lastMagnitude.current &&
+          lastMagnitude.current > smoothedMagnitude + 0.02 &&
+          timeSinceLastStep > minStepInterval &&
+          !isStepPeak.current
+        ) {
+          isStepPeak.current = true;
+          lastStepTime.current = now;
+
+          setSessionSteps(prev => prev + 1);
+          setStepCount(prev => {
+            const newCount = prev + 1;
+            currentStepCountRef.current = newCount;
+
+            if (now - lastAccelSaveTime > ACCEL_SAVE_INTERVAL) {
+              lastAccelSaveTime = now;
+              AsyncStorage.setItem(storageKeys.current.stepCount, JSON.stringify({
+                count: newCount,
+                date: new Date().toDateString(),
+              })).catch(() => {});
+            }
+
+            return newCount;
+          });
         }
-        if (pedometerSyncInterval.current) {
-          clearInterval(pedometerSyncInterval.current);
-          pedometerSyncInterval.current = null;
+
+        if (smoothedMagnitude < stepThreshold - 0.08) {
+          isStepPeak.current = false;
         }
-      };
+
+        lastMagnitude.current = smoothedMagnitude;
+      });
     }
+
+    return () => {
+      if (accelerometerSubscription.current) {
+        accelerometerSubscription.current.remove();
+        accelerometerSubscription.current = null;
+      }
+      if (pedometerSubscription.current) {
+        pedometerSubscription.current.remove();
+        pedometerSubscription.current = null;
+      }
+      if (pedometerSyncInterval.current) {
+        clearInterval(pedometerSyncInterval.current);
+        pedometerSyncInterval.current = null;
+      }
+    };
   }, [isWalking, isPedometerAvailable]);
 
   // Start walking
@@ -1350,7 +1346,7 @@ export const WalkingProvider = ({ children }) => {
     // Reset restored session flags for fresh sessions
     isRestoredSession.current = false;
     restoredStepCount.current = 0;
-    lastPedometerSteps.current = 0;
+    lastPedometerSteps.current = 0; lastWatchSteps.current = 0; lastPollSteps.current = 0;
 
     // Reset milestone tracking to current step count floor
     // (so first notification is at next 500 boundary after current steps)
@@ -1424,8 +1420,18 @@ export const WalkingProvider = ({ children }) => {
       if (!currentCauseId.current) { console.log('⏭️ save-step-event skip: no cause'); return; }
       if (totalSteps <= 0) { console.log('⏭️ save-step-event skip: stepCount=0'); return; }
 
-      const deltaSteps = totalSteps - lastSentSteps.current;
+      let deltaSteps = totalSteps - lastSentSteps.current;
       if (deltaSteps <= 0) return; // quiet — happens every idle tick
+
+      // Hard cap — even if upstream state somehow inflates, never POST
+      // an absurd delta. Fast-forwards lastSentSteps so we don't keep
+      // retrying the same bogus value forever; the user loses at most
+      // MAX_STEPS_PER_POST steps of credit per bad tick, vs. crediting
+      // them thousands of fake steps and getting their account banned.
+      if (deltaSteps > MAX_STEPS_PER_POST) {
+        console.log(`⚠️ save-step-event: capping huge delta ${deltaSteps} → ${MAX_STEPS_PER_POST}`);
+        deltaSteps = MAX_STEPS_PER_POST;
+      }
 
       // Watchdog — if a previous POST has been "in flight" longer
       // than SAVE_INFLIGHT_MAX_AGE_MS, assume it's stuck and clear
@@ -1458,7 +1464,11 @@ export const WalkingProvider = ({ children }) => {
       }
 
       if (ackData) {
-        lastSentSteps.current = totalSteps;
+        // Credit only what we actually POSTed. When the cap kicked in
+        // above, deltaSteps < (totalSteps - lastSentSteps); the next
+        // tick will pick up the remainder. Setting `= totalSteps`
+        // would silently drop the un-posted portion.
+        lastSentSteps.current += deltaSteps;
         console.log('📤 Sent delta steps:', deltaSteps, '(total:', totalSteps, ') ack:', ackData);
         // Skip litres — save-step-event's value is session-scoped and
         // can be smaller than the aggregated day total. Litties stays
@@ -1655,7 +1665,7 @@ export const WalkingProvider = ({ children }) => {
     // Reset restored session tracking
     isRestoredSession.current = false;
     restoredStepCount.current = 0;
-    lastPedometerSteps.current = 0;
+    lastPedometerSteps.current = 0; lastWatchSteps.current = 0; lastPollSteps.current = 0;
   }, [stepCount, kilometre, kcal, litres, sessionSteps]);
 
   // Refresh steps manually
@@ -1664,9 +1674,10 @@ export const WalkingProvider = ({ children }) => {
       try {
         const now = new Date();
         const result = await Pedometer.getStepCountAsync(walkingStartTime.current, now);
-        if (result && result.steps > 0) {
-          setSessionSteps(result.steps);
-          setStepCount(prev => Math.max(prev, sessionStartSteps.current + result.steps));
+        if (result && Number.isFinite(result.steps) && result.steps > 0 && result.steps <= MAX_DAILY_STEPS) {
+          const candidate = sessionStartSteps.current + result.steps;
+          setSessionSteps(prev => Math.max(prev, result.steps));
+          setStepCount(prev => clampCatchupUpdate(prev, candidate, 'manual-refresh'));
         }
       } catch (error) {
         console.log('Error refreshing steps:', error);
@@ -1707,8 +1718,13 @@ export const WalkingProvider = ({ children }) => {
       : currentStepCountRef.current || 0;
     applyServerAnchors(summary, baseSteps);
     if (typeof summary.steps === 'number' && summary.steps > 0) {
-      setStepCount((prev) => Math.max(prev, summary.steps));
-      setTodaySteps((prev) => Math.max(prev, summary.steps));
+      // Clamp the server value the same way we clamp native catch-ups.
+      // This breaks the feedback loop where a corrupted client POSTs
+      // an inflated delta → server stores it → server returns it → we
+      // accept it and POST again, etc.
+      const clean = sanitizeStepCount(summary.steps);
+      setStepCount((prev) => clampCatchupUpdate(prev, clean, 'server-refresh'));
+      setTodaySteps((prev) => clampCatchupUpdate(prev, clean, 'server-refresh-today'));
     }
   }, []);
 
@@ -1791,8 +1807,8 @@ export const WalkingProvider = ({ children }) => {
         if (stats.date === today) {
           const cleanStatsCount = sanitizeStepCount(stats.stepCount);
           if (cleanStatsCount > 0) {
-            setStepCount(prev => Math.max(prev, cleanStatsCount));
-            setTodaySteps(prev => Math.max(prev, cleanStatsCount));
+            setStepCount(prev => clampCatchupUpdate(prev, cleanStatsCount, 'user-load-stats'));
+            setTodaySteps(prev => clampCatchupUpdate(prev, cleanStatsCount, 'user-load-stats-today'));
           }
           // Only load litres (km/kcal are calculated from stepCount)
           setLitres(stats.litres || '0.00');
@@ -1830,7 +1846,7 @@ export const WalkingProvider = ({ children }) => {
             // Mark as restored session so pedometer adds to existing count
             isRestoredSession.current = true;
             restoredStepCount.current = totalSteps;
-            lastPedometerSteps.current = 0;
+            lastPedometerSteps.current = 0; lastWatchSteps.current = 0; lastPollSteps.current = 0;
 
             try {
               await BackgroundStepService.startBackgroundStepTracking(totalSteps, goalSteps, userId);

@@ -5,6 +5,7 @@ import { AppNavigator } from './src/navigation';
 import { WalkingProvider, ThemeProvider, AuthProvider, WeatherProvider } from './src/context';
 import DevMenu from './src/components/DevMenu';
 import OfflineBanner from './src/components/OfflineBanner';
+import ReviewPromptModal from './src/components/ReviewPromptModal';
 
 // ==========================================================================
 // Global font scaling based on *physical* pixel width, not dp width.
@@ -75,6 +76,7 @@ export default function App() {
             <WalkingProvider>
               <AppNavigator />
               <OfflineBanner />
+              <ReviewPromptModal />
               <DevMenu />
             </WalkingProvider>
           </WeatherProvider>

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, Modal, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GradientBackground, GradientButton, Icon } from '../../components';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -15,6 +15,7 @@ const SETUP_COMPLETE_KEY = '@wern_setup_complete';
 const PermissionsSetupScreen = () => {
   const { colors, isDarkMode } = useTheme();
   const { completeSetup } = useAuth();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -281,7 +282,7 @@ const PermissionsSetupScreen = () => {
             onPress={handleDecline}
           >
             <TouchableOpacity
-              style={styles.modalContainer}
+              style={[styles.modalContainer, { paddingBottom: Math.max(insets.bottom + 16, 24) }]}
               activeOpacity={1}
               onPress={() => {}}
             >

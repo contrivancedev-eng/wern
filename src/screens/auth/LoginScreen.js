@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { GradientBackground, GlassCard, GradientButton, Icon, Toast } from '../../components';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { getPushTokenOnly } from '../../services/PushService';
 import { fonts } from '../../utils';
 
 const API_URL = 'https://www.wernapp.com/api/';
@@ -48,9 +49,13 @@ const LoginScreen = ({ navigation }) => {
 
     setIsLoading(true);
     try {
+      const deviceId = await getPushTokenOnly();
+
       const payload = {
         email: email.trim().toLowerCase(),
         password: password,
+        device_id: deviceId || '',
+        platform: Platform.OS,
       };
 
       const response = await fetch(`${API_URL}user-login-action`, {

@@ -19,7 +19,7 @@ import {
   clearEntries,
 } from '../utils/networkLogger';
 
-export const DEV_MENU_ENABLED = false;
+export const DEV_MENU_ENABLED = true;
 
 // Imperative opener — the mounted DevMenu registers its setState here so
 // other parts of the app (e.g. a hidden logo-tap trigger) can open it.

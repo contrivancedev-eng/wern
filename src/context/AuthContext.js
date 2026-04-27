@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { registerForPushNotifications, clearPushRegistration } from '../services/PushService';
 
 const AuthContext = createContext();
 const API_URL = 'https://www.wernapp.com/api/';
@@ -72,6 +73,11 @@ export const AuthProvider = ({ children }) => {
         // Fetch litties balance
         const littiesBalance = await fetchLittiesBalance(storedToken);
         setLitties(littiesBalance);
+
+        // Refresh push-token registration with the backend. The
+        // helper dedupes — only hits the API the first time or when
+        // the device token rotates.
+        registerForPushNotifications(storedToken).catch(() => {});
       }
     } catch (error) {
       console.error('Error checking auth state:', error);
@@ -132,6 +138,10 @@ export const AuthProvider = ({ children }) => {
         const littiesBalance = await fetchLittiesBalance(authToken);
         setLitties(littiesBalance);
 
+        // Register this device for push notifications so the backend
+        // can send reminders / goal hits / referral alerts.
+        registerForPushNotifications(authToken).catch(() => {});
+
         return { success: true, user: userData, needsSetup: setupComplete !== 'true' };
       } else {
         // Check if setup is complete even if user details fail
@@ -141,6 +151,7 @@ export const AuthProvider = ({ children }) => {
         } else {
           setNeedsSetup(true);
         }
+        registerForPushNotifications(authToken).catch(() => {});
         return { success: true, user: null, needsSetup: setupComplete !== 'true' };
       }
     } catch (error) {
@@ -171,9 +182,13 @@ export const AuthProvider = ({ children }) => {
         const littiesBalance = await fetchLittiesBalance(authToken);
         setLitties(littiesBalance);
 
+        // Register for push on fresh signup too.
+        registerForPushNotifications(authToken).catch(() => {});
+
         return { success: true, user: userData, needsSetup: true };
       } else {
         setNeedsSetup(true);
+        registerForPushNotifications(authToken).catch(() => {});
         return { success: true, user: null, needsSetup: true };
       }
     } catch (error) {
@@ -185,6 +200,9 @@ export const AuthProvider = ({ children }) => {
     try {
       await AsyncStorage.removeItem('user');
       await AsyncStorage.removeItem('token');
+      // Clear the push-token registration cache so the next user on
+      // this device re-registers (otherwise two users share a token).
+      await clearPushRegistration();
       setUser(null);
       setToken(null);
       setIsAuthenticated(false);

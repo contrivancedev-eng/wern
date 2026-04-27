@@ -133,7 +133,7 @@ const BottomTabNavigator = () => {
           onLogout={handleLogout}
           onNotificationsPress={handleNotificationsPress}
         />
-        <View style={styles.contentContainer}>
+        <View style={[styles.contentContainer, { paddingTop: insets.top + smallScale(60) }]}>
           <Tab.Navigator
             tabBar={(props) => <CustomTabBar {...props} colors={colors} bottomInset={insets.bottom} />}
             screenOptions={{
@@ -200,7 +200,6 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
-    paddingTop: smallScale(90),
     backgroundColor: 'transparent',
   },
   tabBarContainer: {

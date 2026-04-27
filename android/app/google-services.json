@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "547647467998",
+    "project_id": "wern-fab49",
+    "storage_bucket": "wern-fab49.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:547647467998:android:8135d1b884307a8eef6d4f",
+        "android_client_info": {
+          "package_name": "com.wern.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDvbg0_x8X7kIB40eekhnrGwUfZeSPHC4o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

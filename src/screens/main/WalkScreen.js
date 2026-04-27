@@ -6,6 +6,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { Video, ResizeMode } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, Toast } from '../../components';
 import CauseLottie from '../../components/CauseLottie';
 import { useTheme } from '../../context/ThemeContext';
@@ -80,6 +81,7 @@ const WalkScreen = () => {
     setToast({ visible: false, message: '', type: 'error' });
   };
   const { colors, isDarkMode } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors, isDarkMode), [colors, isDarkMode]);
   const {
     isWalking,
@@ -1525,7 +1527,15 @@ const WalkScreen = () => {
       >
         <View style={styles.modalOverlay}>
           <BlurView intensity={50} tint="dark" style={styles.modalBlur}>
-            <View style={styles.modalContent}>
+            <View
+              style={[
+                styles.modalContent,
+                {
+                  paddingTop: Math.max(insets.top + 12, 50),
+                  paddingBottom: Math.max(insets.bottom + 12, 20),
+                },
+              ]}
+            >
               {/* Header */}
               <View style={styles.modalHeader}>
                 <View>
@@ -2327,7 +2337,6 @@ const createStyles = (colors, isDarkMode) => StyleSheet.create({
   modalButtons: {
     flexDirection: 'row',
     marginTop: 20,
-    marginBottom: 20,
     gap: 12,
   },
   cancelButton: {
